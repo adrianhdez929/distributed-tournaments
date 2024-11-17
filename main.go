@@ -1,26 +1,43 @@
 package main
 
 import (
+	// "tournaments/server/models"
 	"fmt"
-	"tournaments/server/models"
+	"os"
+	server "tournaments/server"
 )
 
 func main() {
-	playerCount := 16
-	players := make([]models.Player, playerCount)
-	// matches := make([]models.Match, playerCount/2)
+	// playerCount := 16
+	// players := make([]models.Player, playerCount)
+	// // matches := make([]models.Match, playerCount/2)
 
-	for i := 0; i < playerCount; i++ {
-		players[i] = models.NewPlayerData(i + 1)
-	}
-
-	// for i := 1; i < playerCount; i += 2 {
-	// 	matches[i/2] = models.NewMatchData(players[i], players[i-1])
+	// for i := 0; i < playerCount; i++ {
+	// 	players[i] = models.NewPlayerData(i + 1)
 	// }
 
-	tournament := models.NewTournamentData(players)
+	// // for i := 1; i < playerCount; i += 2 {
+	// // 	matches[i/2] = models.NewMatchData(players[i], players[i-1])
+	// // }
 
-	winner := tournament.Winner()
+	// tournament := models.NewTournamentData(players)
 
-	fmt.Printf("winner: %s\n", winner.Id())
+	// winner := tournament.Winner()
+
+	// fmt.Printf("winner: %s\n", winner.Id())
+	// server.Run()
+
+	// _, err := net.Listen("tcp", ":8080")
+	// if err != nil {
+	// 	fmt.Println("Port is in use")
+	// }
+	// client.Run()
+
+	content, err := os.ReadFile("./server/players/greedy.go")
+	if err != nil {
+		fmt.Println("Error reading file:", err)
+		return
+	}
+
+	server.ReceivePlayerImpl(string(content), "NewGreedyPlayer")
 }
