@@ -34,6 +34,8 @@ func NewMatchData(
 // }
 
 func (m *MatchData) Play() {
+	m.playerA.Move()
+	m.playerB.Move()
 	m.winner = m.playerA
 }
 
