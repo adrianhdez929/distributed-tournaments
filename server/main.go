@@ -2,14 +2,14 @@ package server
 
 import (
 	"fmt"
+	"models"
 	"net"
 	"os"
 	"os/exec"
 	"plugin"
-	"tournaments/server/models"
 )
 
-func Run() {
+func main() {
 	listener, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		fmt.Println("Error creating listener:", err)
@@ -54,6 +54,7 @@ func ReceivePlayerImpl(code string, constructor string) {
 	file.WriteString(code)
 	file.Close()
 
+	// TODO: add unique identifier to players uploaded
 	_, err := exec.Command("go", "build", "-buildmode=plugin", "-o", "impl.so", "player_impl.go").Output()
 	if err != nil {
 		fmt.Printf("error in exec: %s\n", err)
@@ -66,6 +67,7 @@ func ReceivePlayerImpl(code string, constructor string) {
 	if err != nil {
 		fmt.Printf("error in lookup: %s\n", err)
 	}
+	// TODO: create shared interface for player definition
 	loadedPlayer := playerImpl.(func(int) models.Player)(1)
 
 	loadedPlayer.Move()

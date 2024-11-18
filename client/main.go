@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-func Run() {
+func main() {
 	// Read the content of players/greedy.go
 	content, err := os.ReadFile("./client/players/greedy.go")
 	if err != nil {

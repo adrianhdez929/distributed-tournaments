@@ -4,8 +4,9 @@ import (
 	// "tournaments/server/models"
 	"fmt"
 	"os"
-	server "tournaments/server"
 )
+
+// TODO: create both proyects: client and server
 
 func main() {
 	// playerCount := 16
