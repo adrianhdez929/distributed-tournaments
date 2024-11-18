@@ -2,9 +2,10 @@ package players
 
 import (
 	"fmt"
+	"shared/interfaces"
 )
 
-func NewGreedyPlayer(id int) *GreedyPlayer {
+func NewGreedyPlayer(id int) interfaces.Player {
 	return &GreedyPlayer{id}
 }
 
@@ -17,5 +18,5 @@ func (p *GreedyPlayer) Id() string {
 }
 
 func (p *GreedyPlayer) Move() {
-	fmt.Printf("%s is moving", p.Id())
+	fmt.Printf("%s is moving\n", p.Id())
 }

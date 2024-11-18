@@ -1,6 +1,7 @@
 package models
 
 import (
+	"math/rand"
 	"shared/interfaces"
 )
 
@@ -36,7 +37,13 @@ func NewMatchData(
 func (m *MatchData) Play() {
 	m.playerA.Move()
 	m.playerB.Move()
-	m.winner = m.playerA
+	// TODO: improve this random player winner
+	r := rand.Intn(2)
+	if r == 0 {
+		m.winner = m.playerA
+		return
+	}
+	m.winner = m.playerB
 }
 
 func (m *MatchData) Next() Match {
