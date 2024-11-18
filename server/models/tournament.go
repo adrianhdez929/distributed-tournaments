@@ -2,23 +2,24 @@ package models
 
 import (
 	"math"
+	"shared/interfaces"
 )
 
 type Tournament interface {
 	CurrentRound() int
 	TotalRounds() int
-	Winner() Player
+	Winner() interfaces.Player
 }
 
 type TournamentData struct {
-	players      []Player
+	players      []interfaces.Player
 	matches      []Match
-	winner       Player
+	winner       interfaces.Player
 	currentRound int
 	rounds       int
 }
 
-func NewTournamentData(players []Player) *TournamentData {
+func NewTournamentData(players []interfaces.Player) *TournamentData {
 	initialMatchCount := float64(len(players) / 2)
 
 	totalRounds := int(math.Log2(initialMatchCount)) + 1
@@ -39,7 +40,7 @@ func NewTournamentData(players []Player) *TournamentData {
 	}
 }
 
-func (t *TournamentData) Winner() Player {
+func (t *TournamentData) Winner() interfaces.Player {
 	if t.winner != nil {
 		return t.winner
 	}

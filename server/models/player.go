@@ -2,11 +2,6 @@ package models
 
 import "fmt"
 
-type Player interface {
-	Id() string
-	Move()
-}
-
 type PlayerData struct {
 	id int
 }

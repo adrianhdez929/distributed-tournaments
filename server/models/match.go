@@ -1,25 +1,31 @@
 package models
 
-// "time"
+import (
+	"shared/interfaces"
+)
 
 type Match interface {
 	// Id() string
 	Play()
 	Next() Match
-	Winner() Player
-	SetPlayer(Player)
-	Players() [2]Player
+	Winner() interfaces.Player
+	SetPlayer(interfaces.Player)
+	Players() [2]interfaces.Player
 }
 
 type MatchData struct {
 	// id      int
-	playerA Player
-	playerB Player
-	winner  Player
+	playerA interfaces.Player
+	playerB interfaces.Player
+	winner  interfaces.Player
 	next    Match
 }
 
-func NewMatchData(playerA Player, playerB Player, next Match) *MatchData {
+func NewMatchData(
+	playerA interfaces.Player,
+	playerB interfaces.Player,
+	next Match,
+) *MatchData {
 	return &MatchData{playerA, playerB, nil, next}
 }
 
@@ -35,15 +41,15 @@ func (m *MatchData) Next() Match {
 	return m.next
 }
 
-func (m *MatchData) Winner() Player {
+func (m *MatchData) Winner() interfaces.Player {
 	return m.winner
 }
 
-func (m *MatchData) Players() [2]Player {
-	return [2]Player{m.playerA, m.playerB}
+func (m *MatchData) Players() [2]interfaces.Player {
+	return [2]interfaces.Player{m.playerA, m.playerB}
 }
 
-func (m *MatchData) SetPlayer(player Player) {
+func (m *MatchData) SetPlayer(player interfaces.Player) {
 	if m.playerA == nil {
 		m.playerA = player
 		return

@@ -1,15 +1,25 @@
-package server
+package main
 
 import (
 	"fmt"
-	"models"
 	"net"
 	"os"
 	"os/exec"
 	"plugin"
+	"shared/interfaces"
 )
 
 func main() {
+	content, err := os.ReadFile("./players/greedy.go")
+	if err != nil {
+		fmt.Println("Error reading file:", err)
+		return
+	}
+
+	ReceivePlayerImpl(string(content), "NewGreedyPlayer")
+}
+
+func Run() {
 	listener, err := net.Listen("tcp", ":8080")
 	if err != nil {
 		fmt.Println("Error creating listener:", err)
@@ -68,7 +78,7 @@ func ReceivePlayerImpl(code string, constructor string) {
 		fmt.Printf("error in lookup: %s\n", err)
 	}
 	// TODO: create shared interface for player definition
-	loadedPlayer := playerImpl.(func(int) models.Player)(1)
+	loadedPlayer := playerImpl.(func(int) interfaces.Player)(1)
 
 	loadedPlayer.Move()
 }
