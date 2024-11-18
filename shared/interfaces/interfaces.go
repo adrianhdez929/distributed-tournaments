@@ -1,4 +1,4 @@
-package shared
+package interfaces
 
 type Player interface {
 	Id() string
