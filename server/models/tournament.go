@@ -19,11 +19,11 @@ type TournamentData struct {
 	rounds       int
 }
 
-func NewTournamentData(players []interfaces.Player) *TournamentData {
+func NewTournamentData(players []interfaces.Player, gameFactory func([]interfaces.Player) interfaces.Game) *TournamentData {
 	initialMatchCount := float64(len(players) / 2)
 
 	totalRounds := int(math.Log2(initialMatchCount)) + 1
-	matches := createTournament(totalRounds)
+	matches := createTournament(totalRounds, gameFactory)
 
 	for _, v := range matches {
 		v.SetPlayer(players[0])
@@ -51,7 +51,7 @@ func (t *TournamentData) Winner() interfaces.Player {
 		newMatches := make([]Match, 0, len(currentMatches)/2)
 
 		for _, v := range currentMatches {
-			v.Play()
+			v.Start()
 			winner := v.Winner()
 
 			if v.Next() != nil {
@@ -73,15 +73,15 @@ func (t *TournamentData) Winner() interfaces.Player {
 	return t.winner
 }
 
-func createTournament(rounds int) []Match {
-	finalMatch := NewMatchData(nil, nil, nil)
+func createTournament(rounds int, gameFactory func([]interfaces.Player) interfaces.Game) []Match {
+	finalMatch := NewMatchData(gameFactory, nil, nil)
 	currentRound := []Match{finalMatch}
 
 	for i := 0; i < rounds-1; i++ {
 		newRound := make([]Match, 0, 2*len(currentRound))
 
 		for _, v := range currentRound {
-			submatches := createSubMatches(v)
+			submatches := createSubMatches(v, gameFactory)
 			newRound = append(newRound, submatches[0], submatches[1])
 		}
 
@@ -91,9 +91,9 @@ func createTournament(rounds int) []Match {
 	return currentRound
 }
 
-func createSubMatches(match Match) [2]Match {
+func createSubMatches(match Match, gameFactory func([]interfaces.Player) interfaces.Game) [2]Match {
 	return [2]Match{
-		NewMatchData(nil, nil, match),
-		NewMatchData(nil, nil, match),
+		NewMatchData(gameFactory, nil, match),
+		NewMatchData(gameFactory, nil, match),
 	}
 }

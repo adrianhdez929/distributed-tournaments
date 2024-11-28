@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
-	"plugin"
 	"shared/interfaces"
-	"strings"
+	"tournament_server/games"
 	"tournament_server/models"
+	"tournament_server/players"
 )
 
 func main() {
@@ -45,99 +44,49 @@ func handleConnection(listener net.Listener) {
 			continue
 		}
 
-		defer conn.Close()
+		// TODO: make it a non anonymous function
+		go func(c net.Conn) {
+			defer conn.Close()
 
-		buffer := make([]byte, 1024)
-		n, err := conn.Read(buffer)
-		if err != nil {
-			fmt.Println("Error reading from connection:", err)
-			return
-		}
+			buffer := make([]byte, 1024)
+			n, err := conn.Read(buffer)
+			if err != nil {
+				fmt.Println("Error reading from connection:", err)
+				return
+			}
 
-		receivedString := string(buffer[:n])
-		// fmt.Println("Received string:", receivedString)
-		playerFactory, err := getPlayerConstructor(receivedString, "NewGreedyPlayer")
-		if err != nil {
-			fmt.Println("Error building dynamic object:", err)
-			return
-		}
-		playerCount := 16
+			receivedString := string(buffer[:n])
+			fmt.Println("Received string:", receivedString)
+			// playerFactory, err := code.GetPlayerConstructor(receivedString, "NewGreedyPlayer")
+			playerFactory := players.NewGreedyPlayer
+			if err != nil {
+				fmt.Println("Error building dynamic object:", err)
+				return
+			}
 
-		players := make([]interfaces.Player, playerCount)
-		// matches := make([]models.Match, playerCount/2)
+			// gameFactory, err := code.GetGameConstructor(receivedString, "NewTicTacToe")
+			gameFactory := games.NewTicTacToe
+			if err != nil {
+				fmt.Println("Error building dynamic object:", err)
+				return
+			}
 
-		for i := 0; i < playerCount; i++ {
-			players[i] = playerFactory(i + 1)
-			fmt.Printf("creating player %s\n", players[i].Id())
-		}
-
-		// for i := 1; i < playerCount; i += 2 {
-		// 	matches[i/2] = models.NewMatchData(players[i], players[i-1])
-		// }
-
-		tournament := models.NewTournamentData(players)
-
-		winner := tournament.Winner()
-		fmt.Printf("the winner is %s\n", winner.Id())
-
-		break
+			createTournament(playerFactory, gameFactory, 16)
+		}(conn)
 	}
 }
 
-func getPlayerConstructor(code string, constructor string) (func(int) interfaces.Player, error) {
-	filename := "./players/player_impl.go"
-	file, _ := os.Create(filename)
-	code = strings.Replace(code, "package players", "package main", 1)
-	file.WriteString(code)
-	file.Close()
-	defer os.Remove(filename)
+func createTournament(playerFactory func(int) interfaces.Player, gameFactory func([]interfaces.Player) interfaces.Game, playerCount int) {
+	players := make([]interfaces.Player, playerCount)
+	// matches := make([]models.Match, playerCount/2)
 
-	// TODO: add unique identifier to players uploaded
-	cmd := exec.Command("go", "build", "-buildmode=plugin", "-o", "impl.so", filename)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		fmt.Println(fmt.Sprint(err) + ": " + string(output))
-		return nil, err
-	}
-	if err != nil {
-		fmt.Printf("error in exec: %s\n", err)
-		return nil, err
-	}
-	plug, err := plugin.Open("impl.so")
-	if err != nil {
-		fmt.Printf("error plugin: %s\n", err)
-		return nil, err
-	}
-	defer os.Remove("impl.so")
-	playerImpl, err := plug.Lookup(constructor)
-	if err != nil {
-		fmt.Printf("error in lookup: %s\n", err)
-		return nil, err
+	for i := 0; i < playerCount; i++ {
+		players[i] = playerFactory(i + 1)
+		fmt.Printf("creating player %s\n", players[i].Id())
 	}
 
-	return playerImpl.(func(int) interfaces.Player), nil
-}
+	tournament := models.NewTournamentData(players, gameFactory)
 
-func ReceivePlayerImpl(code string, constructor string) {
-	file, _ := os.Create("player_impl.go")
-	file.WriteString(code)
-	file.Close()
-
-	// TODO: add unique identifier to players uploaded
-	_, err := exec.Command("go", "build", "-buildmode=plugin", "-o", "impl.so", "player_impl.go").Output()
-	if err != nil {
-		fmt.Printf("error in exec: %s\n", err)
-	}
-	plug, err := plugin.Open("impl.so")
-	if err != nil {
-		fmt.Printf("error plugin: %s\n", err)
-	}
-	playerImpl, err := plug.Lookup(constructor)
-	if err != nil {
-		fmt.Printf("error in lookup: %s\n", err)
-	}
-	// TODO: create shared interface for player definition
-	loadedPlayer := playerImpl.(func(int) interfaces.Player)(1)
-
-	loadedPlayer.Move()
+	winner := tournament.Winner()
+	fmt.Printf("the winner is %s\n", winner.Id())
 }
