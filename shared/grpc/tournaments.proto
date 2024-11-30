@@ -1,0 +1,81 @@
+ syntax = "proto3";
+
+package tournament;
+
+option go_package = "server/tournaments";
+
+// Tournament represents a tournament entity
+message Tournament {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string start_timestamp = 4;  // ISO 8601 format
+  TournamentStatus status = 5;
+  int32 max_participants = 6;
+  string game = 7;
+  repeated Player players = 8;
+}
+
+// Participant represents a tournament participant
+message Player {
+  string id = 1;
+  string name = 2;
+  string agent_name = 3;
+}
+
+// TournamentStatus represents the current state of a tournament
+enum TournamentStatus {
+  TOURNAMENT_STATUS_NOT_STARTED = 0;
+  TOURNAMENT_STATUS_IN_PROGRESS = 1;
+  TOURNAMENT_STATUS_COMPLETED = 2;
+}
+
+// CreateTournamentRequest is the request for creating a new tournament
+message CreateTournamentRequest {
+  string name = 1;
+  string description = 2;
+  string start_timestamp = 3;
+  int32 player_count = 4;
+  string game = 5;
+  repeated Player players = 6;
+}
+
+// CreateTournamentResponse is the response for creating a new tournament
+message CreateTournamentResponse {
+  Tournament tournament = 1;
+}
+
+// GetTournamentRequest is the request for getting a tournament by ID
+message GetTournamentRequest {
+  string id = 1;
+}
+
+// GetTournamentResponse is the response containing the requested tournament
+message GetTournamentResponse {
+  Tournament tournament = 1;
+}
+
+// ListTournamentsRequest is the request for listing tournaments
+message ListTournamentsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+  TournamentStatus status = 3;
+}
+
+// ListTournamentsResponse is the response containing a list of tournaments
+message ListTournamentsResponse {
+  repeated Tournament tournaments = 1;
+  string next_page_token = 2;
+}
+
+// TournamentService defines the gRPC service for tournament operations
+service TournamentService {
+  // CreateTournament creates a new tournament
+  rpc CreateTournament(CreateTournamentRequest) returns (CreateTournamentResponse) {}
+  
+  // GetTournament retrieves a tournament by ID
+  rpc GetTournament(GetTournamentRequest) returns (GetTournamentResponse) {}
+  
+  // ListTournaments retrieves a list of tournaments with optional filtering
+  rpc ListTournaments(ListTournamentsRequest) returns (ListTournamentsResponse) {}
+} 
