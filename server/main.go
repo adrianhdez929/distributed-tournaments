@@ -1,92 +1,76 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"log"
 	"net"
-	"os"
-	"shared/interfaces"
-	"tournament_server/games"
-	"tournament_server/models"
-	"tournament_server/players"
+
+	tournaments "tournament_server/tournaments"
+
+	pb "shared/grpc"
+
+	"google.golang.org/grpc"
+)
+
+var (
+	port = flag.Int("port", 8080, "The server port")
 )
 
 func main() {
-	// content, err := os.ReadFile("./players/greedy.go")
-	// if err != nil {
-	// 	fmt.Println("Error reading file:", err)
-	// 	return
-	// }
-
-	// ReceivePlayerImpl(string(content), "NewGreedyPlayer")
-	Run()
-}
-
-func Run() {
-	listener, err := net.Listen("tcp", ":8080")
+	flag.Parse()
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
-		fmt.Println("Error creating listener:", err)
-		os.Exit(1)
+		log.Fatalf("failed to listen: %v", err)
 	}
-	defer listener.Close()
 
-	handleConnection(listener)
+	s := grpc.NewServer()
+	pb.RegisterTournamentServiceServer(s, &tournaments.TournamentService{})
+	log.Printf("server listening at %v", lis.Addr())
 
-	fmt.Println("Server is listening on port 8080")
-
-}
-
-func handleConnection(listener net.Listener) {
-	for {
-		conn, err := listener.Accept()
-
-		if err != nil {
-			fmt.Println("Error accepting connection:", err)
-			continue
-		}
-
-		// TODO: make it a non anonymous function
-		go func(c net.Conn) {
-			defer conn.Close()
-
-			buffer := make([]byte, 1024)
-			n, err := conn.Read(buffer)
-			if err != nil {
-				fmt.Println("Error reading from connection:", err)
-				return
-			}
-
-			receivedString := string(buffer[:n])
-			fmt.Println("Received string:", receivedString)
-			// playerFactory, err := code.GetPlayerConstructor(receivedString, "NewGreedyPlayer")
-			playerFactory := players.NewGreedyPlayer
-			if err != nil {
-				fmt.Println("Error building dynamic object:", err)
-				return
-			}
-
-			// gameFactory, err := code.GetGameConstructor(receivedString, "NewTicTacToe")
-			gameFactory := games.NewTicTacToe
-			if err != nil {
-				fmt.Println("Error building dynamic object:", err)
-				return
-			}
-
-			createTournament(playerFactory, gameFactory, 16)
-		}(conn)
+	if err := s.Serve(lis); err != nil {
+		log.Fatalf("failed to serve: %v", err)
 	}
 }
 
-func createTournament(playerFactory func(int) interfaces.Player, gameFactory func([]interfaces.Player) interfaces.Game, playerCount int) {
-	players := make([]interfaces.Player, playerCount)
-	// matches := make([]models.Match, playerCount/2)
+// func Run() {
+// 	listener, err := net.Listen("tcp", ":8080")
+// 	if err != nil {
+// 		fmt.Println("Error creating listener:", err)
+// 		os.Exit(1)
+// 	}
+// 	defer listener.Close()
 
-	for i := 0; i < playerCount; i++ {
-		players[i] = playerFactory(i + 1)
-		fmt.Printf("creating player %s\n", players[i].Id())
-	}
+// 	handleConnection(listener)
 
-	tournament := models.NewTournamentData(players, gameFactory)
+// 	fmt.Println("Server is listening on port 8080")
 
-	winner := tournament.Winner()
-	fmt.Printf("the winner is %s\n", winner.Id())
-}
+// }
+
+// func handleConnection(listener net.Listener) {
+// 	for {
+// 		conn, err := listener.Accept()
+
+// 		if err != nil {
+// 			fmt.Println("Error accepting connection:", err)
+// 			continue
+// 		}
+
+// 		// TODO: make it a non anonymous function
+// 		go func(c net.Conn) {
+// 			defer conn.Close()
+
+// 			buffer := make([]byte, 1024)
+// 			n, err := conn.Read(buffer)
+// 			if err != nil {
+// 				fmt.Println("Error reading from connection:", err)
+// 				return
+// 			}
+
+// 			receivedString := string(buffer[:n])
+// 			fmt.Println("Received string:", receivedString)
+// 			// playerFactory, err := code.GetPlayerConstructor(receivedString, "NewGreedyPlayer")
+
+// 		}(conn)
+// 	}
+// }

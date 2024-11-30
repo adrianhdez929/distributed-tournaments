@@ -3,15 +3,20 @@ package models
 import (
 	"math"
 	"shared/interfaces"
+
+	"github.com/google/uuid"
 )
 
 type Tournament interface {
+	Id() string
 	CurrentRound() int
 	TotalRounds() int
+	Players() []interfaces.Player
 	Winner() interfaces.Player
 }
 
 type TournamentData struct {
+	id           string
 	players      []interfaces.Player
 	matches      []Match
 	winner       interfaces.Player
@@ -32,12 +37,21 @@ func NewTournamentData(players []interfaces.Player, gameFactory func([]interface
 	}
 
 	return &TournamentData{
-		players,
-		matches,
-		nil,
-		1,
-		totalRounds,
+		id:           uuid.New().String(),
+		players:      players,
+		matches:      matches,
+		winner:       nil,
+		currentRound: 1,
+		rounds:       totalRounds,
 	}
+}
+
+func (t *TournamentData) Id() string {
+	return t.id
+}
+
+func (t *TournamentData) Players() []interfaces.Player {
+	return t.players
 }
 
 func (t *TournamentData) Winner() interfaces.Player {
@@ -71,6 +85,14 @@ func (t *TournamentData) Winner() interfaces.Player {
 	}
 
 	return t.winner
+}
+
+func (t *TournamentData) CurrentRound() int {
+	return t.currentRound
+}
+
+func (t *TournamentData) TotalRounds() int {
+	return t.rounds
 }
 
 func createTournament(rounds int, gameFactory func([]interfaces.Player) interfaces.Game) []Match {
