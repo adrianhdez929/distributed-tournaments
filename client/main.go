@@ -1,34 +1,45 @@
 package main
 
 import (
-	"fmt"
-	"net"
-	"os"
+	"context"
+	"flag"
+	"log"
+
+	pb "shared/grpc"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+)
+
+var (
+	addr = flag.String("addr", "localhost:50051", "the address to connect to")
 )
 
 func main() {
-	// Read the content of players/greedy.go
-	content, err := os.ReadFile("./players/greedy.go")
+	conn, err := grpc.NewClient(*addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		fmt.Println("Error reading file:", err)
-		return
-	}
-
-	// Connect to the server
-
-	conn, err := net.Dial("tcp", ":8080")
-	if err != nil {
-		fmt.Println("Error connecting to server:", err)
-		return
+		log.Fatalf("did not connect: %v", err)
 	}
 	defer conn.Close()
 
-	// Send the content through the socket
-	_, err = conn.Write(content)
-	if err != nil {
-		fmt.Println("Error sending data:", err)
-		return
+	client := pb.NewTournamentServiceClient(conn)
+
+	createReq := &pb.CreateTournamentRequest{
+		Name:        "New Tournament",
+		Description: "A new exciting tournament",
 	}
 
-	fmt.Println("File content sent successfully")
+	createRes, err := client.CreateTournament(context.Background(), createReq)
+	if err != nil {
+		log.Fatalf("could not create tournament: %v", err)
+	}
+	log.Printf("Created Tournament: %v", createRes.Tournament)
+
+	// Example: Get a tournament by ID
+	getReq := &pb.GetTournamentRequest{Id: createRes.Tournament.Id}
+	getRes, err := client.GetTournament(context.Background(), getReq)
+	if err != nil {
+		log.Fatalf("could not get tournament: %v", err)
+	}
+	log.Printf("Retrieved Tournament: %v", getRes.Tournament)
 }
