@@ -1,4 +1,4 @@
-FROM golang:1.22.5-alpine
+FROM golang:1.22-alpine
 
 
 WORKDIR /app
@@ -8,4 +8,12 @@ COPY client /app/client
 WORKDIR /app/client
 RUN go get
 
-ENTRYPOINT [ "client/entrypoint.sh" ]
+RUN go build -o client /app/client/main.go
+
+RUN chmod +x /app/client/entrypoint.sh
+
+# CMD while true; do sleep 1; done
+# ENTRYPOINT [ "entrypoint.sh" ]
+
+
+CMD [ "/app/client/entrypoint.sh" ]

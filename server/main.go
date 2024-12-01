@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -14,7 +15,7 @@ import (
 )
 
 var (
-	port = flag.Int("port", 8080, "The server port")
+	port = flag.Int("port", 50053, "The server port")
 )
 
 func main() {
@@ -25,7 +26,12 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	pb.RegisterTournamentServiceServer(s, &tournaments.TournamentService{})
+	redisClient, err := tournaments.NewRedisClient(context.Background(), "redis:6379", "", 0)
+	if err != nil {
+		log.Fatalf("failed to connect to Redis: %v", err)
+	}
+	repo := tournaments.NewRedisRepository(redisClient)
+	pb.RegisterTournamentServiceServer(s, tournaments.NewTournamentService(repo))
 	log.Printf("server listening at %v", lis.Addr())
 
 	if err := s.Serve(lis); err != nil {

@@ -6,9 +6,11 @@ services:
       context: ..
       dockerfile: server/Dockerfile
     container_name: tournament_server
+    cap_add:
+      - NET_ADMIN
     networks:
       servers:
-        ipv4_address: 10.0.11.1
+        ipv4_address: 10.0.11.3
     depends_on:
       redis:
         condition: service_healthy
