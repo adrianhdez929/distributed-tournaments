@@ -1,4 +1,4 @@
-package tournaments
+package persistency
 
 import (
 	"context"

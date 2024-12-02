@@ -7,9 +7,9 @@ import (
 	"log"
 	"net"
 
-	tournaments "tournament_server/tournaments"
-
 	pb "shared/grpc"
+	persistency "tournament_server/persistency"
+	tournaments "tournament_server/tournaments"
 
 	"google.golang.org/grpc"
 )
@@ -26,7 +26,7 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	redisClient, err := tournaments.NewRedisClient(context.Background(), "redis:6379", "", 0)
+	redisClient, err := persistency.NewRedisClient(context.Background(), "redis:6379", "", 0)
 	if err != nil {
 		log.Fatalf("failed to connect to Redis: %v", err)
 	}
