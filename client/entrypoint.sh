@@ -5,5 +5,7 @@ ip route del default
 ip route add default via 10.0.10.254
 
 # go build -o client main.go
-chmod +x client
-./client
+# chmod +x client
+# ./client
+
+while true; do sleep 1; done

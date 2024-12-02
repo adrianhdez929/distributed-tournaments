@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+package games;
+
+option go_package = "shared/grpc;grpc";
+
+message Game {
+  string id = 1;
+  string name = 2;
+  string constructor_name = 3;
+}
+
+message UploadGameFileRequest {
+  string game_name = 1;
+  bytes file_content = 2;
+  string constructor_name = 3;
+}
+
+message UploadGameFileResponse {
+  bool success = 1;
+}
+
+service GamesService {
+  rpc UploadGameFile(UploadGameFileRequest) returns (UploadGameFileResponse) {}
+}

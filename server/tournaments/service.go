@@ -24,7 +24,7 @@ type TournamentService struct {
 func NewTournamentService(repo TournamentRepository) *TournamentService {
 	return &TournamentService{
 		repo:    repo,
-		manager: NewTournamentManager(),
+		manager: NewTournamentManager(repo),
 	}
 }
 
@@ -39,7 +39,7 @@ func (s *TournamentService) CreateTournament(ctx context.Context, req *pb.Create
 		Id:              tournament.Id(),
 		Name:            tournament.Id(),
 		Description:     tournament.Id(),
-		StartTimestamp:  string(time.Now().Unix()),
+		StartTimestamp:  fmt.Sprintf("%d", time.Now().Unix()),
 		Status:          pb.TournamentStatus_TOURNAMENT_STATUS_NOT_STARTED,
 		MaxParticipants: int32(len(tournament.Players())),
 		Game:            "",
@@ -49,6 +49,8 @@ func (s *TournamentService) CreateTournament(ctx context.Context, req *pb.Create
 	if err := s.repo.Create(ctx, tournamentPb); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to create tournament: %v", err)
 	}
+
+	go s.manager.AddTournament(tournament)
 
 	return &pb.CreateTournamentResponse{
 		Tournament: tournamentPb,
@@ -60,13 +62,40 @@ func (s *TournamentService) GetTournament(ctx context.Context, req *pb.GetTourna
 		return nil, status.Error(codes.InvalidArgument, "tournament ID is required")
 	}
 
-	tournament, err := s.repo.Get(ctx, req.Id)
+	tournament, err := s.manager.GetTournament(req.Id)
+
+	// Tournament is not in memory, fetch from database
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "tournament not found: %v", err)
+		dbTournament, err := s.repo.Get(ctx, req.Id)
+
+		fmt.Printf("db tournament: %v\n", dbTournament)
+
+		fmt.Printf("requested tournament: %v\n", dbTournament)
+		fmt.Printf("requested tournament status: %v\n", dbTournament.Status)
+		fmt.Printf("requested tournament player wins: %v\n", dbTournament.PlayerWins)
+		fmt.Printf("requested tournament final winner: %v\n", dbTournament.FinalWinner)
+
+		if err != nil {
+			return nil, status.Errorf(codes.NotFound, "tournament not found: %v", err)
+		}
+
+		return &pb.GetTournamentResponse{
+			Tournament: dbTournament,
+		}, nil
 	}
 
+	statistics := GetStatistics(tournament)
+
+	fmt.Printf("requested tournament: %v\n", tournament)
+	fmt.Printf("requested tournament status: %v\n", tournament.Status())
+	fmt.Printf("requested tournament statistics: %v\n", statistics)
 	return &pb.GetTournamentResponse{
-		Tournament: tournament,
+		Tournament: &pb.Tournament{
+			Id:          tournament.Id(),
+			Status:      tournament.Status(),
+			PlayerWins:  statistics["player_wins"].(map[string]int32),
+			FinalWinner: statistics["final_winner"].(string),
+		},
 	}, nil
 }
 
@@ -110,13 +139,9 @@ func createTournament(playerFactory func(int) interfaces.Player, gameFactory fun
 
 	for i := 0; i < playerCount; i++ {
 		players[i] = playerFactory(i + 1)
-		fmt.Printf("creating player %s\n", players[i].Id())
+		// fmt.Printf("creating player %s\n", players[i].Id())
 	}
 
 	tournament := models.NewTournamentData(players, gameFactory)
-
-	winner := tournament.Winner()
-	fmt.Printf("the winner is %s\n", winner.Id())
-
 	return tournament
 }

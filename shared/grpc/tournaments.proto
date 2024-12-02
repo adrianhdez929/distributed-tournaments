@@ -1,8 +1,8 @@
- syntax = "proto3";
+syntax = "proto3";
 
 package tournament;
 
-option go_package = "server/tournaments";
+option go_package = "shared/grpc;grpc";
 
 // Tournament represents a tournament entity
 message Tournament {
@@ -14,6 +14,8 @@ message Tournament {
   int32 max_participants = 6;
   string game = 7;
   repeated Player players = 8;
+  map<string, int32> player_wins = 9;
+  string final_winner = 10;
 }
 
 // Participant represents a tournament participant

@@ -4,6 +4,8 @@ import (
 	"math"
 	"shared/interfaces"
 
+	pb "shared/grpc"
+
 	"github.com/google/uuid"
 )
 
@@ -13,15 +15,27 @@ type Tournament interface {
 	TotalRounds() int
 	Players() []interfaces.Player
 	Winner() interfaces.Player
+	Matches() []Match
+	AddMatches(matches []Match)
+	SetStatus(status pb.TournamentStatus)
+	Status() pb.TournamentStatus
+	State() map[string]interface{}
+	SetState(key string, value interface{})
+}
+
+var initialState = map[string]interface{}{
+	"player_wins":  make(map[string]int32),
+	"final_winner": "",
 }
 
 type TournamentData struct {
 	id           string
 	players      []interfaces.Player
 	matches      []Match
-	winner       interfaces.Player
 	currentRound int
 	rounds       int
+	status       pb.TournamentStatus
+	state        map[string]interface{}
 }
 
 func NewTournamentData(players []interfaces.Player, gameFactory func([]interfaces.Player) interfaces.Game) *TournamentData {
@@ -40,9 +54,10 @@ func NewTournamentData(players []interfaces.Player, gameFactory func([]interface
 		id:           uuid.New().String(),
 		players:      players,
 		matches:      matches,
-		winner:       nil,
 		currentRound: 1,
 		rounds:       totalRounds,
+		status:       pb.TournamentStatus_TOURNAMENT_STATUS_NOT_STARTED,
+		state:        initialState,
 	}
 }
 
@@ -50,41 +65,20 @@ func (t *TournamentData) Id() string {
 	return t.id
 }
 
+func (t *TournamentData) Status() pb.TournamentStatus {
+	return t.status
+}
+
+func (t *TournamentData) SetStatus(status pb.TournamentStatus) {
+	t.status = status
+}
+
 func (t *TournamentData) Players() []interfaces.Player {
 	return t.players
 }
 
 func (t *TournamentData) Winner() interfaces.Player {
-	if t.winner != nil {
-		return t.winner
-	}
-
-	currentMatches := t.matches
-
-	for i := 0; i < t.rounds; i++ {
-		newMatches := make([]Match, 0, len(currentMatches)/2)
-
-		for _, v := range currentMatches {
-			v.Start()
-			winner := v.Winner()
-
-			if v.Next() != nil {
-				v.Next().SetPlayer(winner)
-			} else {
-				t.winner = winner
-			}
-
-			if len(newMatches) == 0 {
-				newMatches = append(newMatches, v.Next())
-			} else if newMatches[len(newMatches)-1] != v.Next() {
-				newMatches = append(newMatches, v.Next())
-			}
-		}
-
-		currentMatches = newMatches
-	}
-
-	return t.winner
+	return t.state["winner"].(interfaces.Player)
 }
 
 func (t *TournamentData) CurrentRound() int {
@@ -93,6 +87,22 @@ func (t *TournamentData) CurrentRound() int {
 
 func (t *TournamentData) TotalRounds() int {
 	return t.rounds
+}
+
+func (t *TournamentData) Matches() []Match {
+	return t.matches
+}
+
+func (t *TournamentData) AddMatches(matches []Match) {
+	t.matches = append(t.matches, matches...)
+}
+
+func (t *TournamentData) State() map[string]interface{} {
+	return t.state
+}
+
+func (t *TournamentData) SetState(key string, value interface{}) {
+	t.state[key] = value
 }
 
 func createTournament(rounds int, gameFactory func([]interfaces.Player) interfaces.Game) []Match {

@@ -4,7 +4,7 @@
 // - protoc             v3.12.4
 // source: grpc/tournaments.proto
 
-package tournaments
+package grpc
 
 import (
 	context "context"

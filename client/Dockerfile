@@ -1,5 +1,17 @@
-FROM golang:1.22-alpine
+FROM golang:1.22-alpine AS build-client
 
+WORKDIR /app
+COPY shared shared
+COPY client/go.mod client/go.mod
+COPY client/go.sum client/go.sum
+# To acknowledge go there is a module here
+RUN touch client/main.go
+RUN echo "package main; func main() {}" > client/main.go
+
+WORKDIR /app/client
+RUN go get
+
+FROM build-client
 
 WORKDIR /app
 COPY shared /app/shared

@@ -131,6 +131,26 @@ func (r *RedisRepository) List(ctx context.Context, pageSize int32, pageToken st
 	return tournaments, nextPageToken, nil
 }
 
+func (r *RedisRepository) Update(ctx context.Context, tournament *pb.Tournament) error {
+	tournamentJSON, err := json.Marshal(tournament)
+
+	key := r.getTournamentKey(tournament.Id)
+	pipe := r.client.Pipeline()
+
+	if err != nil {
+		return fmt.Errorf("failed to marshal tournament: %w", err)
+	}
+
+	pipe.Set(ctx, key, tournamentJSON, defaultExpiration).Err()
+
+	_, err = pipe.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to update tournament: %w", err)
+	}
+
+	return nil
+}
+
 func (r *RedisRepository) getTournamentKey(id string) string {
 	return fmt.Sprintf("%s%s", tournamentKeyPrefix, id)
 }
