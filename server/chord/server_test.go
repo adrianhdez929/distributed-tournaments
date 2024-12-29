@@ -1,6 +1,7 @@
 package chord_test
 
 import (
+	"net"
 	"testing"
 	"tournament_server/chord"
 )
@@ -27,6 +28,7 @@ func TestChordServer(t *testing.T) {
 	})
 
 	t.Run("should join another node", func(t *testing.T) {
+		s, c := net.Pipe()
 
 	})
 }

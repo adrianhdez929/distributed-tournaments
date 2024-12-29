@@ -1,9 +1,9 @@
 package chord
 
 type ChordClient struct {
-	server ChordServer
+	server *ChordServer
 }
 
-func NewChordClient(server ChordServer) *ChordClient {
+func NewChordClient(server *ChordServer) *ChordClient {
 	return &ChordClient{server: server}
 }
