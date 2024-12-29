@@ -53,14 +53,23 @@ func NewChordNodeReference(ip string, port int) ChordNodeReference {
 func (n ChordNodeReference) sendData(opcode ChordOpcode, data string) []byte {
 	socket, err := net.Dial("tcp", fmt.Sprintf("%s:%d", n.Ip, n.Port))
 	if err != nil {
+		log.Default().Printf("sendData: Failed to connect to node %s:%d", n.Ip, n.Port)
 		return nil
 	}
 	defer socket.Close()
 
-	socket.Write([]byte(fmt.Sprintf("%d %s", opcode, data)))
+	_, err = socket.Write([]byte(fmt.Sprintf("%d,%s", opcode, data)))
+	if err != nil {
+		log.Default().Printf("sendData: Failed to send data to node %s:%d", n.Ip, n.Port)
+		return nil
+	}
 
 	response := make([]byte, 1024)
-	socket.Read(response)
+	_, err = socket.Read(response)
+	if err != nil {
+		log.Default().Printf("sendData: Failed to read response from node %s:%d", n.Ip, n.Port)
+		return nil
+	}
 
 	return response
 }
@@ -72,7 +81,6 @@ func (n ChordNodeReference) FindSuccessor(id int) ChordNodeReference {
 	}
 
 	decoded := strings.Split(string(response), ",")
-
 	return NewChordNodeReference(decoded[1], n.Port)
 }
 
@@ -82,7 +90,8 @@ func (n ChordNodeReference) FindPredecessor(id int) ChordNodeReference {
 		return ChordNodeReference{Id: 0, Ip: "", Port: 0}
 	}
 
-	return ChordNodeReference{Id: int(response[0]), Ip: string(response[1]), Port: n.Port}
+	decoded := strings.Split(string(response), ",")
+	return NewChordNodeReference(decoded[1], n.Port)
 }
 
 func (n *ChordNodeReference) Successor() ChordNodeReference {
@@ -92,7 +101,6 @@ func (n *ChordNodeReference) Successor() ChordNodeReference {
 	}
 
 	decoded := strings.Split(string(response), ",")
-
 	return NewChordNodeReference(decoded[1], n.Port)
 }
 
@@ -103,12 +111,11 @@ func (n ChordNodeReference) Predecessor() ChordNodeReference {
 	}
 
 	decoded := strings.Split(string(response), ",")
-
 	return NewChordNodeReference(decoded[1], n.Port)
 }
 
 func (n ChordNodeReference) Notify(node ChordNodeReference) {
-	n.sendData(NOTIFY, fmt.Sprintf("%d", node.Id))
+	n.sendData(NOTIFY, fmt.Sprintf("%d,%s", node.Id, node.Ip))
 }
 
 func (n ChordNodeReference) ClosestPrecedingFinger(id int) ChordNodeReference {
@@ -116,6 +123,7 @@ func (n ChordNodeReference) ClosestPrecedingFinger(id int) ChordNodeReference {
 	if response == nil {
 		return ChordNodeReference{Id: 0, Ip: "", Port: 0}
 	}
+
 	decoded := strings.Split(string(response), ",")
 	return NewChordNodeReference(decoded[1], n.Port)
 }
