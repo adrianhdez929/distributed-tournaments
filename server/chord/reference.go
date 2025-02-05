@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"strconv"
 	"strings"
 )
 
@@ -39,6 +40,33 @@ func getShaRepr(data string) int {
 	return int(intNum.Int64())
 }
 
+func GetSha(data string) int {
+	return getShaRepr(data)
+}
+
+func checkValidIp(ip string) bool {
+	ipParts := strings.Split(ip, ".")
+	if len(ipParts) != 4 {
+		log.Default().Printf("checkValidIp: not 4 valid parts %s\n", ip)
+		return false
+	}
+
+	for _, part := range ipParts {
+		partInt, err := strconv.ParseUint(string(part), 10, 64)
+		if err != nil {
+			log.Default().Printf("checkValidIp: cannot parse int from str %s\n in part %s\n", ip, part)
+			log.Default().Println(err)
+			return false
+		}
+
+		if partInt >= 255 {
+			log.Default().Printf("checkValidIp: number not in range %s\n", ip)
+			return false
+		}
+	}
+	return true
+}
+
 // Stores the reference to a chord node
 type ChordNodeReference struct {
 	Id   int
@@ -47,6 +75,11 @@ type ChordNodeReference struct {
 }
 
 func NewChordNodeReference(ip string, port int) ChordNodeReference {
+	validIp := checkValidIp(ip)
+	if !validIp {
+		log.Default().Printf("NewChordNodeReference: Invalid IP address %s\n", ip)
+		return ChordNodeReference{Id: 0, Ip: "", Port: 0}
+	}
 	return ChordNodeReference{Id: getShaRepr(ip), Ip: ip, Port: port}
 }
 
@@ -54,6 +87,7 @@ func (n ChordNodeReference) sendData(opcode ChordOpcode, data string) []byte {
 	socket, err := net.Dial("tcp", fmt.Sprintf("%s:%d", n.Ip, n.Port))
 	if err != nil {
 		log.Default().Printf("sendData: Failed to connect to node %s:%d", n.Ip, n.Port)
+		log.Default().Println(err)
 		return nil
 	}
 	defer socket.Close()
@@ -61,17 +95,24 @@ func (n ChordNodeReference) sendData(opcode ChordOpcode, data string) []byte {
 	_, err = socket.Write([]byte(fmt.Sprintf("%d,%s", opcode, data)))
 	if err != nil {
 		log.Default().Printf("sendData: Failed to send data to node %s:%d", n.Ip, n.Port)
+		log.Default().Println(err)
 		return nil
+	}
+
+	if opcode == NOTIFY {
+		return make([]byte, 0)
 	}
 
 	response := make([]byte, 1024)
-	_, err = socket.Read(response)
+	nBytes, err := socket.Read(response)
 	if err != nil {
+		log.Default().Printf("sendData: opcode %d\n", opcode)
 		log.Default().Printf("sendData: Failed to read response from node %s:%d", n.Ip, n.Port)
+		log.Default().Println(err)
 		return nil
 	}
 
-	return response
+	return response[:nBytes]
 }
 
 func (n ChordNodeReference) FindSuccessor(id int) ChordNodeReference {
@@ -81,6 +122,7 @@ func (n ChordNodeReference) FindSuccessor(id int) ChordNodeReference {
 	}
 
 	decoded := strings.Split(string(response), ",")
+	log.Default().Printf("FindSuccessor: decoded %s\n", decoded[1])
 	return NewChordNodeReference(decoded[1], n.Port)
 }
 

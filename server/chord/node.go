@@ -5,8 +5,8 @@ type ChordNode struct {
 	server *ChordServer
 }
 
-func NewChordNode(ip string) *ChordNode {
-	server := NewChordServer(ip, 8080, 10)
+func NewChordNode(ip string, port int) *ChordNode {
+	server := NewChordServer(ip, port, 160)
 	client := NewChordClient(server)
 
 	return &ChordNode{client: client, server: server}
