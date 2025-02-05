@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"time"
 
 	pb "shared/grpc"
+	chord "tournament_server/chord"
 	persistency "tournament_server/persistency"
 	tournaments "tournament_server/tournaments"
 
@@ -15,10 +17,12 @@ import (
 )
 
 var (
-	port = flag.Int("port", 50053, "The server port")
+	port       = flag.Int("port", 50053, "The server port")
+	chord_port = flag.Int("chord_port", 50054, "The chord port")
+	ip         = flag.String("ip", "10.0.11.3", "The ip address")
 )
 
-func main() {
+func mainMonolithic() {
 	flag.Parse()
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
 	if err != nil {
@@ -37,6 +41,17 @@ func main() {
 	if err := s.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
+}
+
+func main() {
+	flag.Parse()
+
+	chord.NewChordNode(*ip, *chord_port)
+
+	for {
+		time.Sleep(10 * time.Second)
+	}
+	// fmt.Println(chord.NewChordNodeReference("0", 50054).String())
 }
 
 // func Run() {
