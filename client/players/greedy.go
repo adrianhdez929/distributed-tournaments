@@ -6,19 +6,19 @@ import (
 	"shared/interfaces"
 )
 
-func NewRandomPlayer(id int) interfaces.Player {
-	return &TicTacToeRandomPlayer{id}
+func NewGreedyPlayer(id int) interfaces.Player {
+	return &TicTacToeGreedyPlayer{id}
 }
 
-type TicTacToeRandomPlayer struct {
+type TicTacToeGreedyPlayer struct {
 	id int
 }
 
-func (p *TicTacToeRandomPlayer) Id() string {
+func (p *TicTacToeGreedyPlayer) Id() string {
 	return fmt.Sprintf("%d", p.id)
 }
 
-func (p *TicTacToeRandomPlayer) Move(state interfaces.GameState) interfaces.Move {
+func (p *TicTacToeGreedyPlayer) Move(state interfaces.GameState) interfaces.Move {
 	board := state["board"].([3][3]int)
 	valid := false
 	for !valid {
