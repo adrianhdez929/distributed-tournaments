@@ -1,6 +1,7 @@
 package games
 
 import (
+	"math/rand"
 	"shared/interfaces"
 )
 
@@ -18,15 +19,46 @@ func NewTicTacToe(players []interfaces.Player) interfaces.Game {
 
 func (g *TicTacToe) Play() {
 	g.status = interfaces.Running
-	lineMade := false
+	freeCount := getFreeCellCount(g.board)
 
-	for !lineMade {
+	for freeCount > 0 {
 		for i, player := range g.players {
+			freeCount := getFreeCellCount(g.board)
+			if freeCount == 0 {
+				return
+			}
 			move := player.Move(g.State())
+			if !moveIsValid(move) {
+				return
+			}
 			g.board[move.X][move.Y] = i
-			g.checkLine(g.board, [2]int{move.X, move.Y})
+			lineMade := g.checkLine(g.board, [2]int{move.X, move.Y})
+			if lineMade {
+				g.status = interfaces.Finished
+				g.winner = g.players[i]
+				return
+			}
 		}
 	}
+
+	g.status = interfaces.Finished
+	g.winner = g.players[rand.Int()%(len(g.players))]
+}
+
+func moveIsValid(move interfaces.Move) bool {
+	return move.X >= 0 && move.X < 3 && move.Y >= 0 && move.Y < 3
+}
+
+func getFreeCellCount(board [3][3]int) int {
+	count := 0
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 3; j++ {
+			if board[i][j] == 0 {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func (g *TicTacToe) Winner() interfaces.Player {
