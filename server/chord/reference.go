@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"net"
@@ -20,6 +21,8 @@ const (
 	GET_PREDECESSOR
 	NOTIFY
 	CLOSEST_PRECEDING_FINGER
+	STORE_KEY
+	RETRIEVE_KEY
 )
 
 func getShaRepr(data string) int {
@@ -99,12 +102,17 @@ func (n ChordNodeReference) sendData(opcode ChordOpcode, data string) []byte {
 		return nil
 	}
 
-	if opcode == NOTIFY {
+	if opcode == NOTIFY || opcode == STORE_KEY {
 		return make([]byte, 0)
 	}
 
 	response := make([]byte, 1024)
 	nBytes, err := socket.Read(response)
+
+	if err == io.EOF {
+		return make([]byte, 0)
+	}
+
 	if err != nil {
 		log.Default().Printf("sendData: opcode %d\n", opcode)
 		log.Default().Printf("sendData: Failed to read response from node %s:%d", n.Ip, n.Port)
@@ -172,4 +180,17 @@ func (n ChordNodeReference) ClosestPrecedingFinger(id int) ChordNodeReference {
 
 func (n ChordNodeReference) String() string {
 	return fmt.Sprintf("%d:%s:%d", n.Id, n.Ip, n.Port)
+}
+
+func (n ChordNodeReference) StoreKey(key string, value string) []byte {
+	return n.sendData(STORE_KEY, fmt.Sprintf("%s,%s", key, value))
+}
+
+func (n ChordNodeReference) RetrieveKey(key string) (string, error) {
+	response := n.sendData(RETRIEVE_KEY, key)
+	if response == nil {
+		return "", fmt.Errorf("failed to retrieve key from node %s", n.Ip)
+	}
+
+	return decodeData(response), nil
 }

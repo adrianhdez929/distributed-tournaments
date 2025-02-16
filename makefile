@@ -3,17 +3,26 @@
 # Build all images
 build: build-server build-client build-router
 
+build-server-base:
+	docker build -f server/server_base.Dockerfile . -t server:base
 # Build server image
 build-server:
 	docker-compose -f server/docker-compose.yml build
+# docker build -f server/Dockerfile . -t server
+
+build-client-base:
+	docker build -f client/client_base.Dockerfile . -t client:base
 
 # Build client image
 build-client:
-	docker build -f client/Dockerfile . -t client
+	docker build -f client/client.Dockerfile . -t client
 
 # Build router image
 build-router:
-	docker build -f router/Dockerfile . 
+	docker build -f router/router.Dockerfile router
+
+setup-infra:
+	sh setup_infra.sh
 
 # Clean up images
 clean:
@@ -28,7 +37,8 @@ run: run-router run-server run-client
 
 # Run individual containers
 run-server:
-	docker-compose -f server/docker-compose.yml up -d
+	docker compose -p $(name) -f server/docker-compose.yml up -d 
+# docker run -d --name $(name) --cap-add NET_ADMIN --network servers server
 
 run-client:
 	docker run -d --name client --cap-add NET_ADMIN --network clients client

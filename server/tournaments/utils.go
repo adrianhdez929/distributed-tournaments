@@ -7,21 +7,15 @@ import (
 
 func GetStatistics(tournament models.Tournament) map[string]interface{} {
 	playerWins := make(map[string]int32)
-	// theres no winner yeu
-	finalWinner := tournament.State()["winner"]
-
-	if finalWinner != nil {
-		finalWinner = finalWinner.(string)
-	} else {
-		finalWinner = ""
-	}
+	// theres no winner yet
+	finalWinner := tournament.Winner()
 
 	for _, player := range tournament.Players() {
 		playerWins[player.Id()] = 0
 	}
 
-	for i := range tournament.Matches() {
-		stateKey := fmt.Sprintf("match_winner_%d", i)
+	for k := range tournament.Matches() {
+		stateKey := fmt.Sprintf("match_winner_%s", k)
 		player := tournament.State()[stateKey]
 		if player == nil {
 			continue
@@ -31,7 +25,7 @@ func GetStatistics(tournament models.Tournament) map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"player_wins":  playerWins,
-		"final_winner": finalWinner,
+		"player_wins": playerWins,
+		"winner":      finalWinner,
 	}
 }

@@ -7,3 +7,7 @@ type ChordClient struct {
 func NewChordClient(server *ChordServer) *ChordClient {
 	return &ChordClient{server: server}
 }
+
+func (c *ChordClient) GetSuccessor() ChordNodeReference {
+	return c.server.Successor()
+}

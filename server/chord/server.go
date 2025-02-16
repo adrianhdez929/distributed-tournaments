@@ -12,6 +12,7 @@ import (
 )
 
 const MULTICAST_MASK = "224.0.0.1"
+const MULTICAST_PORT = 10000
 
 func decodeData(data []byte) string {
 	decoded := strings.Replace(string(data), "\x00", "", -1)
@@ -24,7 +25,8 @@ type ChordServer struct {
 	m           int
 	reference   ChordNodeReference
 	finger      []ChordNodeReference
-	lock        sync.Mutex
+	lock        *sync.Mutex
+	data        map[string]string
 }
 
 func NewChordServer(ip string, port int, m int) *ChordServer {
@@ -41,7 +43,8 @@ func NewChordServer(ip string, port int, m int) *ChordServer {
 		predecessor: reference,
 		reference:   reference,
 		finger:      finger,
-		lock:        sync.Mutex{},
+		lock:        &sync.Mutex{},
+		data:        make(map[string]string),
 	}
 
 	go server.stabilize()
@@ -53,27 +56,11 @@ func NewChordServer(ip string, port int, m int) *ChordServer {
 }
 
 func (n *ChordServer) inBetween(k int, start int, end int) bool {
-	k = k % (2 ^ n.m)
-	start = start % (2 ^ n.m)
-	end = end % (2 ^ n.m)
-
-	if end < start {
-		return k >= start && k < end
+	if start < end {
+		return start < k && k <= end
+	} else {
+		return start < k || k <= end
 	}
-
-	return k >= start || k < end
-}
-
-func (n *ChordServer) inRange(k int, start int, end int) bool {
-	lstart := (start + 1) % (2 ^ n.m)
-
-	return n.inBetween(k, lstart, end)
-}
-
-func (n *ChordServer) inBetweenComp(k int, start int, end int) bool {
-	lend := (end - 1) % (2 ^ n.m)
-
-	return n.inBetween(k, start, lend)
 }
 
 func (n *ChordServer) Id() int {
@@ -86,8 +73,8 @@ func (n *ChordServer) Successor() ChordNodeReference {
 
 func (n *ChordServer) setSuccessor(node ChordNodeReference) {
 	n.lock.Lock()
-	defer n.lock.Unlock()
 	n.finger[0] = node
+	n.lock.Unlock()
 }
 
 func (n *ChordServer) Reference() ChordNodeReference {
@@ -101,13 +88,13 @@ func (n *ChordServer) FindPredecessor(id int) ChordNodeReference {
 		return node
 	}
 
-	for !n.inBetweenComp(id, node.Id, node.Successor().Id) && node.Id != 0 {
+	for !n.inBetween(id, node.Id, node.Successor().Id) && node.Id != 0 {
 		log.Default().Printf("FindPredecessor: calling ClosestPrecedingFinger from %s to %s\n", n.reference.String(), node.String())
 		node = node.ClosestPrecedingFinger(id)
 
-		if node.Id == n.reference.Id {
-			break
-		}
+		// if node.Id == n.reference.Id {
+		// 	break
+		// }
 	}
 
 	return node
@@ -121,22 +108,42 @@ func (n *ChordServer) FindSuccessor(id int) ChordNodeReference {
 
 func (n *ChordServer) ClosestPrecedingFinger(id int) ChordNodeReference {
 	for i := n.m - 1; i >= 0; i-- {
-		if n.inRange(n.finger[i].Id, n.reference.Id, id) {
-			if n.finger[i].Id != n.reference.Id {
-				return n.finger[i]
-			} else {
-				return n.reference
-			}
+		if n.finger[i].Id != n.reference.Id && n.inBetween(n.finger[i].Id, n.reference.Id, id) {
+			return n.finger[i]
 		}
 	}
 	return n.reference
 }
 
-func (n *ChordServer) join(node ChordNodeReference) {
+func (n *ChordServer) StoreKey(key string, value string) error {
+	kHash := getShaRepr(key)
+	node := n.FindSuccessor(kHash)
+	response := node.StoreKey(key, value)
+
+	if response == nil {
+		return fmt.Errorf("could not store key on node %s", node.Ip)
+	}
+
+	n.data[key] = value
+	n.Successor().StoreKey(key, value) // constant replication factor 2 this node and its successor via request
+	return nil
+}
+
+func (n *ChordServer) RetrieveKey(key string) (string, error) {
+	kHash := getShaRepr(key)
+	node := n.FindSuccessor(kHash)
+	return node.RetrieveKey(key)
+}
+
+func (n *ChordServer) join(node ChordNodeReference) ChordNodeReference {
 	time.Sleep(10 * time.Second)
 	n.predecessor = n.reference
 	log.Default().Printf("join: calling FindSuccessor from %s to %s\n", n.reference.String(), node.String())
-	n.setSuccessor(node.FindSuccessor(n.Id()))
+	successor := node.FindSuccessor(n.Id())
+	if successor.Id != 0 {
+		n.setSuccessor(successor)
+	}
+	return successor
 }
 
 func (n *ChordServer) notify(node ChordNodeReference) {
@@ -144,37 +151,30 @@ func (n *ChordServer) notify(node ChordNodeReference) {
 		return
 	}
 
-	if n.predecessor.Id == n.reference.Id || n.inRange(node.Id, n.predecessor.Id, n.reference.Id) {
+	if n.predecessor.Id == n.reference.Id || n.inBetween(node.Id, n.predecessor.Id, n.reference.Id) {
 		n.predecessor = node
 	}
 }
 
 func (n *ChordServer) stabilize() {
 	for {
-		if n.Successor().Id != 0 {
+		if n.Successor().Id != 0 && n.Successor().Id != n.Reference().Id {
 			log.Default().Printf("stabilize: calling GetPredecessor from %s to %s\n", n.reference.String(), n.Successor().String())
 			x := n.Successor().Predecessor()
 
 			if x.Id != n.reference.Id {
-				if n.Successor().Id == n.Id() || n.inRange(x.Id, n.Id(), n.Successor().Id) {
+				if n.inBetween(x.Id, n.reference.Id, n.Successor().Id) {
 					n.setSuccessor(x)
 				}
-			}
-
-			if n.Successor().Id != 0 && n.Successor().Id != n.Id() {
-				log.Default().Printf("stabilize: calling Notify from %s to %s\n", n.reference.String(), n.Successor().String())
 				n.Successor().Notify(n.reference)
 			}
 		}
-		if n.Successor().Id == 0 && n.predecessor.Id != 0 {
-			n.setSuccessor(n.predecessor)
-		}
-		time.Sleep(10 * time.Second)
+		time.Sleep(5 * time.Second)
 	}
 }
 
 func (n *ChordServer) fixFinger() {
-	time.Sleep(10 * time.Second)
+	time.Sleep(5 * time.Second)
 
 	for {
 		next := rand.Intn(n.m)
@@ -195,7 +195,7 @@ func (n *ChordServer) fixFinger() {
 
 func (n *ChordServer) multicastAddress() {
 	for {
-		addr, err := net.ResolveUDPAddr("udp4", MULTICAST_MASK)
+		addr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("%s:%d", MULTICAST_MASK, MULTICAST_PORT))
 		if err != nil {
 			log.Default().Println(err)
 		}
@@ -204,13 +204,17 @@ func (n *ChordServer) multicastAddress() {
 			log.Default().Println(err)
 		}
 		conn.Write([]byte(fmt.Sprintf("%s:%d", n.reference.Ip, n.reference.Port)))
+		log.Default().Printf("multicastAddress: sending address %s:%d\n", n.reference.Ip, n.reference.Port)
 		conn.Close()
-		time.Sleep(10 * time.Second)
+		time.Sleep(30 * time.Second)
 	}
 }
 
 func (n *ChordServer) start() {
-	mAddr, err := net.ResolveUDPAddr("udp4", MULTICAST_MASK)
+	go n.multicastAddress()
+	go n.listen()
+
+	mAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("%s:%d", MULTICAST_MASK, MULTICAST_PORT))
 
 	if err != nil {
 		log.Default().Println(err)
@@ -222,34 +226,54 @@ func (n *ChordServer) start() {
 		log.Default().Println(err)
 	}
 
-	addrReader := make([]byte, 1024)
-	_, err = mSocket.Read(addrReader)
+	addressFound := false
+	remoteIP := ""
+	remotePort := 0
 
-	if err != nil {
-		log.Default().Println(err)
-		return
+	for !addressFound {
+		addrReader := make([]byte, 1024)
+		_, err = mSocket.Read(addrReader)
+
+		if err != nil {
+			log.Default().Println(err)
+			return
+		}
+
+		// Decode the received data and remove null bytes
+		receivedAddr := decodeData(addrReader)
+		log.Default().Printf("start: received address %s\n", receivedAddr)
+
+		parts := strings.Split(receivedAddr, ":")
+		if len(parts) != 2 {
+			log.Default().Printf("Invalid address format received: %s", receivedAddr)
+			return
+		}
+
+		// Split the received address into IP and port
+		remoteIP = parts[0]
+		remotePort, err = strconv.Atoi(parts[1])
+
+		if err != nil {
+			log.Default().Printf("Invalid port number received: %s", parts[1])
+			return
+		}
+
+		if parts[0] != n.reference.Ip {
+			addressFound = true
+			newReference := n.join(NewChordNodeReference(remoteIP, remotePort))
+			log.Default().Printf("start: joining node %s:%d\n", parts[0], remotePort)
+
+			if newReference.Id == 0 {
+				addressFound = false
+				log.Default().Fatalf("start: failed to join node %s:%d\n", parts[0], remotePort)
+			}
+		}
 	}
 
-	// Decode the received data and remove null bytes
-	receivedAddr := decodeData(addrReader)
+	defer mSocket.Close()
+}
 
-	// Split the received address into IP and port
-	parts := strings.Split(receivedAddr, ":")
-	if len(parts) != 2 {
-		log.Default().Printf("Invalid address format received: %s", receivedAddr)
-		return
-	}
-
-	remoteIP := parts[0]
-	remotePort, err := strconv.Atoi(parts[1])
-	if err != nil {
-		log.Default().Printf("Invalid port number received: %s", parts[1])
-		return
-	}
-
-	go n.join(NewChordNodeReference(remoteIP, remotePort))
-
-	// Create TCP address for local listening
+func (n *ChordServer) listen() {
 	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", n.reference.Ip, n.reference.Port))
 
 	if err != nil {
@@ -262,10 +286,7 @@ func (n *ChordServer) start() {
 		log.Default().Println(err)
 	}
 
-	defer mSocket.Close()
 	defer socket.Close()
-
-	go n.multicastAddress()
 
 	for {
 		conn, err := socket.Accept()
@@ -334,6 +355,14 @@ func (n *ChordServer) handleConnection(conn net.Conn) {
 		}
 		closestFinger := n.ClosestPrecedingFinger(id)
 		responseData = fmt.Sprintf("%d,%s", closestFinger.Id, closestFinger.Ip)
+	case STORE_KEY:
+		key := message[1]
+		value := message[2]
+		n.data[key] = value
+		// hay que replicar la ejecucion
+	case RETRIEVE_KEY:
+		key := message[1]
+		responseData = fmt.Sprint(n.data[key])
 	}
 
 	conn.Write([]byte(responseData))

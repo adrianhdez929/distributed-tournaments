@@ -11,3 +11,11 @@ func NewChordNode(ip string, port int) *ChordNode {
 
 	return &ChordNode{client: client, server: server}
 }
+
+func (n *ChordNode) Client() *ChordClient {
+	return n.client
+}
+
+func (n *ChordNode) Server() *ChordServer {
+	return n.server
+}

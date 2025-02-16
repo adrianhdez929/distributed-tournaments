@@ -49,7 +49,7 @@ message CreateTournamentResponse {
 
 // GetTournamentRequest is the request for getting a tournament by ID
 message GetTournamentRequest {
-  string id = 1;
+  string name = 2;
 }
 
 // GetTournamentResponse is the response containing the requested tournament
