@@ -14,4 +14,5 @@ type Game interface {
 	State() GameState
 	Play()
 	Winner() Player
+	Name() string
 }

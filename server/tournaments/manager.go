@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"tournament_server/chord"
 	"tournament_server/models"
 
 	pb "shared/grpc"
@@ -13,12 +14,14 @@ import (
 type TournamentManager struct {
 	Tournaments map[string]models.Tournament
 	repo        TournamentRepository
+	node        *chord.ChordServer
 }
 
-func NewTournamentManager(repo TournamentRepository) *TournamentManager {
+func NewTournamentManager(repo TournamentRepository, server *chord.ChordServer) *TournamentManager {
 	return &TournamentManager{
 		Tournaments: make(map[string]models.Tournament),
 		repo:        repo,
+		node:        server,
 	}
 }
 
@@ -64,10 +67,15 @@ func (tm *TournamentManager) Notify(tournamentId string, key string, value inter
 		statistics := GetStatistics(tournament)
 
 		pbTournament := &pb.Tournament{
-			Id:          tournament.Id(),
-			Status:      tournament.Status(),
-			PlayerWins:  statistics["player_wins"].(map[string]int32),
-			FinalWinner: statistics["winner"].(interfaces.Player).Id(),
+			Id:              tournament.Id(),
+			Name:            tournament.Id(),
+			Status:          tournament.Status(),
+			MaxParticipants: int32(len(tournament.Players())),
+			Game:            tournament.Game(),
+			Players:         DumpTournamentPlayers(tournament.Players()),
+			Matches:         DumpTournamentMatches(tournament.Matches()),
+			PlayerWins:      statistics["player_wins"].(map[string]int32),
+			FinalWinner:     statistics["winner"].(interfaces.Player).Id(),
 		}
 
 		tm.repo.Update(context.Background(), pbTournament)
@@ -79,6 +87,22 @@ func (tm *TournamentManager) Notify(tournamentId string, key string, value inter
 	if key == "status" {
 		tournament.SetStatus(value.(pb.TournamentStatus))
 		tm.Tournaments[tournamentId] = tournament
+
+		statistics := GetStatistics(tournament)
+
+		pbTournament := &pb.Tournament{
+			Id:              tournament.Id(),
+			Name:            tournament.Id(),
+			Status:          tournament.Status(),
+			MaxParticipants: int32(len(tournament.Players())),
+			Game:            tournament.Game(),
+			Players:         DumpTournamentPlayers(tournament.Players()),
+			Matches:         DumpTournamentMatches(tournament.Matches()),
+			PlayerWins:      statistics["player_wins"].(map[string]int32),
+			FinalWinner:     "",
+		}
+
+		tm.repo.Update(context.Background(), pbTournament)
 
 		log.Default().Printf("tournamentManager:Notify: tournament %s status is %s\n", tournament.Id(), tournament.Status())
 	}

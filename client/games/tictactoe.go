@@ -43,6 +43,10 @@ func (g *TicTacToe) State() interfaces.GameState {
 	return state
 }
 
+func (g *TicTacToe) Name() string {
+	return "TicTacToe"
+}
+
 func (g *TicTacToe) checkLine(matrix [3][3]int, coord [2]int) bool {
 	directions := [4][2]int{{1, 0}, {0, 1}, {0, 0}, {1, 1}}
 	for _, direction := range directions {

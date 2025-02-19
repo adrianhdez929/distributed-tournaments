@@ -154,3 +154,42 @@ func (r *RedisRepository) Update(ctx context.Context, tournament *pb.Tournament)
 func (r *RedisRepository) getTournamentKey(id string) string {
 	return fmt.Sprintf("%s%s", tournamentKeyPrefix, id)
 }
+
+type MemoryRepository struct {
+	tournaments map[string]*pb.Tournament
+}
+
+func NewMemoryRepository() *MemoryRepository {
+	return &MemoryRepository{
+		tournaments: make(map[string]*pb.Tournament),
+	}
+}
+
+func (r *MemoryRepository) Create(ctx context.Context, tournament *pb.Tournament) error {
+	r.tournaments[tournament.Id] = tournament
+	return nil
+}
+
+func (r *MemoryRepository) Get(ctx context.Context, id string) (*pb.Tournament, error) {
+	tournament := r.tournaments[id]
+	if tournament == nil {
+		return nil, fmt.Errorf("tournament not found")
+	}
+	return tournament, nil
+}
+
+func (r *MemoryRepository) Update(ctx context.Context, tournament *pb.Tournament) error {
+	if tournament == nil {
+		return fmt.Errorf("tournament is nil")
+	}
+	r.tournaments[tournament.Id] = tournament
+	return nil
+}
+
+func (r *MemoryRepository) List(ctx context.Context) ([]*pb.Tournament, error) {
+	list := make([]*pb.Tournament, 0, len(r.tournaments))
+	for _, tournament := range r.tournaments {
+		list = append(list, tournament)
+	}
+	return list, nil
+}

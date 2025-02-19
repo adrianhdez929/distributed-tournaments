@@ -7,8 +7,8 @@ build-server-base:
 	docker build -f server/server_base.Dockerfile . -t server:base
 # Build server image
 build-server:
-	docker-compose -f server/docker-compose.yml build
-# docker build -f server/Dockerfile . -t server
+# docker-compose -f server/docker-compose.yml build
+	docker build -f server/server.Dockerfile . -t server
 
 build-client-base:
 	docker build -f client/client_base.Dockerfile . -t client:base
@@ -37,8 +37,8 @@ run: run-router run-server run-client
 
 # Run individual containers
 run-server:
-	docker compose -p $(name) -f server/docker-compose.yml up -d 
-# docker run -d --name $(name) --cap-add NET_ADMIN --network servers server
+# docker compose -p $(name) -f server/docker-compose.yml up -d 
+	docker run -d --name $(name) --cap-add NET_ADMIN --network servers server
 
 run-client:
 	docker run -d --name client --cap-add NET_ADMIN --network clients client

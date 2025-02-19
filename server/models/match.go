@@ -38,7 +38,8 @@ func NewMatchData(
 		gameFactory(players),
 		players,
 		nil,
-		next}
+		next,
+	}
 }
 
 func (m *MatchData) Id() string {

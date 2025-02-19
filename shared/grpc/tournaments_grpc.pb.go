@@ -20,8 +20,10 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	TournamentService_CreateTournament_FullMethodName = "/tournament.TournamentService/CreateTournament"
+	TournamentService_ReplicateCreate_FullMethodName  = "/tournament.TournamentService/ReplicateCreate"
 	TournamentService_GetTournament_FullMethodName    = "/tournament.TournamentService/GetTournament"
 	TournamentService_ListTournaments_FullMethodName  = "/tournament.TournamentService/ListTournaments"
+	TournamentService_UpdateTournament_FullMethodName = "/tournament.TournamentService/UpdateTournament"
 )
 
 // TournamentServiceClient is the client API for TournamentService service.
@@ -32,10 +34,12 @@ const (
 type TournamentServiceClient interface {
 	// CreateTournament creates a new tournament
 	CreateTournament(ctx context.Context, in *CreateTournamentRequest, opts ...grpc.CallOption) (*CreateTournamentResponse, error)
+	ReplicateCreate(ctx context.Context, in *ReplicateCreateRequest, opts ...grpc.CallOption) (*CreateTournamentResponse, error)
 	// GetTournament retrieves a tournament by ID
 	GetTournament(ctx context.Context, in *GetTournamentRequest, opts ...grpc.CallOption) (*GetTournamentResponse, error)
 	// ListTournaments retrieves a list of tournaments with optional filtering
 	ListTournaments(ctx context.Context, in *ListTournamentsRequest, opts ...grpc.CallOption) (*ListTournamentsResponse, error)
+	UpdateTournament(ctx context.Context, in *UpdateTournamentRequest, opts ...grpc.CallOption) (*UpdateTournamentResponse, error)
 }
 
 type tournamentServiceClient struct {
@@ -50,6 +54,16 @@ func (c *tournamentServiceClient) CreateTournament(ctx context.Context, in *Crea
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateTournamentResponse)
 	err := c.cc.Invoke(ctx, TournamentService_CreateTournament_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *tournamentServiceClient) ReplicateCreate(ctx context.Context, in *ReplicateCreateRequest, opts ...grpc.CallOption) (*CreateTournamentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateTournamentResponse)
+	err := c.cc.Invoke(ctx, TournamentService_ReplicateCreate_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +90,16 @@ func (c *tournamentServiceClient) ListTournaments(ctx context.Context, in *ListT
 	return out, nil
 }
 
+func (c *tournamentServiceClient) UpdateTournament(ctx context.Context, in *UpdateTournamentRequest, opts ...grpc.CallOption) (*UpdateTournamentResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(UpdateTournamentResponse)
+	err := c.cc.Invoke(ctx, TournamentService_UpdateTournament_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TournamentServiceServer is the server API for TournamentService service.
 // All implementations must embed UnimplementedTournamentServiceServer
 // for forward compatibility.
@@ -84,10 +108,12 @@ func (c *tournamentServiceClient) ListTournaments(ctx context.Context, in *ListT
 type TournamentServiceServer interface {
 	// CreateTournament creates a new tournament
 	CreateTournament(context.Context, *CreateTournamentRequest) (*CreateTournamentResponse, error)
+	ReplicateCreate(context.Context, *ReplicateCreateRequest) (*CreateTournamentResponse, error)
 	// GetTournament retrieves a tournament by ID
 	GetTournament(context.Context, *GetTournamentRequest) (*GetTournamentResponse, error)
 	// ListTournaments retrieves a list of tournaments with optional filtering
 	ListTournaments(context.Context, *ListTournamentsRequest) (*ListTournamentsResponse, error)
+	UpdateTournament(context.Context, *UpdateTournamentRequest) (*UpdateTournamentResponse, error)
 	mustEmbedUnimplementedTournamentServiceServer()
 }
 
@@ -101,11 +127,17 @@ type UnimplementedTournamentServiceServer struct{}
 func (UnimplementedTournamentServiceServer) CreateTournament(context.Context, *CreateTournamentRequest) (*CreateTournamentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateTournament not implemented")
 }
+func (UnimplementedTournamentServiceServer) ReplicateCreate(context.Context, *ReplicateCreateRequest) (*CreateTournamentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReplicateCreate not implemented")
+}
 func (UnimplementedTournamentServiceServer) GetTournament(context.Context, *GetTournamentRequest) (*GetTournamentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTournament not implemented")
 }
 func (UnimplementedTournamentServiceServer) ListTournaments(context.Context, *ListTournamentsRequest) (*ListTournamentsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListTournaments not implemented")
+}
+func (UnimplementedTournamentServiceServer) UpdateTournament(context.Context, *UpdateTournamentRequest) (*UpdateTournamentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateTournament not implemented")
 }
 func (UnimplementedTournamentServiceServer) mustEmbedUnimplementedTournamentServiceServer() {}
 func (UnimplementedTournamentServiceServer) testEmbeddedByValue()                           {}
@@ -146,6 +178,24 @@ func _TournamentService_CreateTournament_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TournamentService_ReplicateCreate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReplicateCreateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TournamentServiceServer).ReplicateCreate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TournamentService_ReplicateCreate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TournamentServiceServer).ReplicateCreate(ctx, req.(*ReplicateCreateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TournamentService_GetTournament_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetTournamentRequest)
 	if err := dec(in); err != nil {
@@ -182,6 +232,24 @@ func _TournamentService_ListTournaments_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TournamentService_UpdateTournament_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateTournamentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TournamentServiceServer).UpdateTournament(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TournamentService_UpdateTournament_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TournamentServiceServer).UpdateTournament(ctx, req.(*UpdateTournamentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TournamentService_ServiceDesc is the grpc.ServiceDesc for TournamentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -194,12 +262,20 @@ var TournamentService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _TournamentService_CreateTournament_Handler,
 		},
 		{
+			MethodName: "ReplicateCreate",
+			Handler:    _TournamentService_ReplicateCreate_Handler,
+		},
+		{
 			MethodName: "GetTournament",
 			Handler:    _TournamentService_GetTournament_Handler,
 		},
 		{
 			MethodName: "ListTournaments",
 			Handler:    _TournamentService_ListTournaments_Handler,
+		},
+		{
+			MethodName: "UpdateTournament",
+			Handler:    _TournamentService_UpdateTournament_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

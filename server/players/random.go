@@ -6,25 +6,29 @@ import (
 	"shared/interfaces"
 )
 
-func NewGreedyPlayer(id int) interfaces.Player {
-	return &TicTacToeGreedyPlayer{id}
+func NewRandomPlayer(id int) interfaces.Player {
+	return &TicTacToeRandomPlayer{id}
 }
 
-type TicTacToeGreedyPlayer struct {
+type TicTacToeRandomPlayer struct {
 	id int
 }
 
-func (p *TicTacToeGreedyPlayer) Id() string {
+func (p *TicTacToeRandomPlayer) Id() string {
 	return fmt.Sprintf("%d", p.id)
 }
 
-func (p *TicTacToeGreedyPlayer) Move(state interfaces.GameState) interfaces.Move {
+func (p *TicTacToeRandomPlayer) Move(state interfaces.GameState) interfaces.Move {
 	board := state["board"].([3][3]int)
 
 	freeCells := getFreeCells(board)
 	index := rand.Int() % len(freeCells)
 
 	return freeCells[index]
+}
+
+func (p *TicTacToeRandomPlayer) Name() string {
+	return "TicTacToeRandomPlayer"
 }
 
 func getFreeCells(board [3][3]int) []interfaces.Move {

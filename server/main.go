@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -9,7 +8,6 @@ import (
 
 	pb "shared/grpc"
 	chord "tournament_server/chord"
-	persistency "tournament_server/persistency"
 	tournaments "tournament_server/tournaments"
 
 	"google.golang.org/grpc"
@@ -45,7 +43,8 @@ var (
 func main() {
 	flag.Parse()
 
-	node := chord.NewChordNode(*ip, *chord_port)
+	serviceChannel := make(chan string)
+	node := chord.NewChordServer(*ip, *chord_port, 15, serviceChannel)
 
 	// Tournament client handler
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))
@@ -54,13 +53,10 @@ func main() {
 	}
 
 	s := grpc.NewServer()
-	redisClient, err := persistency.NewRedisClient(context.Background(), "redis:6379", "", 0)
-	if err != nil {
-		log.Fatalf("failed to connect to Redis: %v", err)
-	}
-	repo := tournaments.NewRedisRepository(redisClient)
-	manager := tournaments.NewTournamentManager(repo)
-	pb.RegisterTournamentServiceServer(s, tournaments.NewTournamentService(repo, manager, node))
+	repo := tournaments.NewMemoryRepository()
+
+	manager := tournaments.NewTournamentManager(repo, node)
+	pb.RegisterTournamentServiceServer(s, tournaments.NewTournamentService(repo, manager, node, serviceChannel))
 	log.Printf("server listening at %v", lis.Addr())
 
 	if err := s.Serve(lis); err != nil {

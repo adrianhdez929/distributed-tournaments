@@ -16,6 +16,7 @@ message Tournament {
   repeated Player players = 8;
   map<string, int32> player_wins = 9;
   string final_winner = 10;
+  repeated Match matches = 11;
 }
 
 // Participant represents a tournament participant
@@ -23,6 +24,14 @@ message Player {
   string id = 1;
   string name = 2;
   string agent_name = 3;
+}
+
+message Match {
+  string id = 1;
+  Player player1 = 2;
+  Player player2 = 3;
+  Player winner = 4;
+  string next = 5;
 }
 
 // TournamentStatus represents the current state of a tournament
@@ -47,6 +56,11 @@ message CreateTournamentResponse {
   Tournament tournament = 1;
 }
 
+message ReplicateCreateRequest {
+  Tournament tournament = 1;
+  int32 factor = 2;
+}
+
 // GetTournamentRequest is the request for getting a tournament by ID
 message GetTournamentRequest {
   string name = 2;
@@ -55,6 +69,14 @@ message GetTournamentRequest {
 // GetTournamentResponse is the response containing the requested tournament
 message GetTournamentResponse {
   Tournament tournament = 1;
+}
+
+message UpdateTournamentRequest {
+  Tournament tournament = 1;
+}
+
+message UpdateTournamentResponse {
+  bool success = 1;
 }
 
 // ListTournamentsRequest is the request for listing tournaments
@@ -74,10 +96,14 @@ message ListTournamentsResponse {
 service TournamentService {
   // CreateTournament creates a new tournament
   rpc CreateTournament(CreateTournamentRequest) returns (CreateTournamentResponse) {}
+
+  rpc ReplicateCreate(ReplicateCreateRequest) returns (CreateTournamentResponse) {}
   
   // GetTournament retrieves a tournament by ID
   rpc GetTournament(GetTournamentRequest) returns (GetTournamentResponse) {}
   
   // ListTournaments retrieves a list of tournaments with optional filtering
   rpc ListTournaments(ListTournamentsRequest) returns (ListTournamentsResponse) {}
+
+  rpc UpdateTournament(UpdateTournamentRequest) returns (UpdateTournamentResponse) {}
 } 

@@ -8,10 +8,10 @@ chmod +x server
 # echo ""
 # done
 # Split the host ip into parts
-First=$(ip addr show eth1 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1 | cut -d . -f1)
-Second=$(ip addr show eth1 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1 | cut -d . -f2)
-Third=$(ip addr show eth1 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1 | cut -d . -f3)
-Fourth=$(ip addr show eth1 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1 | cut -d . -f4)
+First=$(ip addr show eth0 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1 | cut -d . -f1)
+Second=$(ip addr show eth0 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1 | cut -d . -f2)
+Third=$(ip addr show eth0 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1 | cut -d . -f3)
+Fourth=$(ip addr show eth0 | grep "inet\b" | awk '{print $2}' | cut -d/ -f1 | cut -d . -f4)
 
 # Host ip
 Ip=$First"."$Second"."$Third"."$Fourth
