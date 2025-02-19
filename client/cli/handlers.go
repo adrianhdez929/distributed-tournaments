@@ -32,23 +32,23 @@ func CreateTournament(client pb.TournamentServiceClient) {
 	if err != nil {
 		log.Fatalf("could not create tournament: %v", err)
 	}
-	log.Printf(createRes.Tournament.Id)
+	log.Printf("%s", createRes.Tournament.Id)
 }
 
 func GetTournament(client pb.TournamentServiceClient) {
 	getCmd := flag.NewFlagSet("get", flag.ExitOnError)
-	id := getCmd.String("id", "", "ID of the tournament")
+	name := getCmd.String("name", "", "Name of the tournament")
 
 	getCmd.Parse(os.Args[2:])
 
-	if *id == "" {
-		log.Fatal("ID is required")
+	if *name == "" {
+		log.Fatal("Name is required")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 
-	getReq := &pb.GetTournamentRequest{Id: *id}
+	getReq := &pb.GetTournamentRequest{Name: *name}
 	getRes, err := client.GetTournament(ctx, getReq)
 	if err != nil {
 		log.Fatalf("could not get tournament: %v", err)

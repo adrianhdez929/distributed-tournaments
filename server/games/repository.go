@@ -27,7 +27,7 @@ func NewGamesRepository(client *redis.Client) *GamesRepository {
 	}
 }
 
-func (r *GamesRepository) Create(ctx context.Context, game *pb.Game) error {
+func (r *GamesRepository) Create(ctx context.Context, game *pb.GameFile) error {
 	gameJSON, err := json.Marshal(game)
 	if err != nil {
 		return fmt.Errorf("failed to marshal game: %w", err)
@@ -48,7 +48,7 @@ func (r *GamesRepository) Create(ctx context.Context, game *pb.Game) error {
 	return nil
 }
 
-func (r *GamesRepository) Get(ctx context.Context, id string) (*pb.Game, error) {
+func (r *GamesRepository) Get(ctx context.Context, id string) (*pb.GameFile, error) {
 	key := r.getGameKey(id)
 
 	gameJSON, err := r.client.Get(ctx, key).Bytes()
@@ -59,7 +59,7 @@ func (r *GamesRepository) Get(ctx context.Context, id string) (*pb.Game, error) 
 		return nil, fmt.Errorf("failed to get game: %w", err)
 	}
 
-	var game pb.Game
+	var game pb.GameFile
 	if err := json.Unmarshal(gameJSON, &game); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal game: %w", err)
 	}

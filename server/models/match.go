@@ -2,21 +2,23 @@ package models
 
 import (
 	"fmt"
+	"math/rand"
 	"shared/interfaces"
 )
 
 type Match interface {
-	// Id() string
+	Id() string
 	Game() interfaces.Game
-	Start()
+	Start() interfaces.Player
 	Next() Match
 	Winner() interfaces.Player
 	SetPlayer(interfaces.Player)
+	SetWinner(interfaces.Player)
 	Players() []interfaces.Player
 }
 
 type MatchData struct {
-	// id      int
+	id          int
 	gameFactory func([]interfaces.Player) interfaces.Game
 	game        interfaces.Game
 	players     []interfaces.Player
@@ -30,27 +32,31 @@ func NewMatchData(
 	next Match,
 ) *MatchData {
 	return &MatchData{
+		// TODO: hash id
+		rand.Int(),
 		gameFactory,
 		gameFactory(players),
 		players,
 		nil,
-		next}
+		next,
+	}
 }
 
-// func (m *MatchData) Id() string {
-// 	return fmt.Sprintf("%d", m.id)
-// }
+func (m *MatchData) Id() string {
+	return fmt.Sprintf("%d", m.id)
+}
 
 func (m *MatchData) Game() interfaces.Game {
 	return m.game
 }
 
-func (m *MatchData) Start() {
+func (m *MatchData) Start() interfaces.Player {
 	m.game = m.gameFactory(m.players)
 	m.game.Play()
 	m.winner = m.game.Winner()
 	fmt.Println("winner is ", m.Winner().Id())
-	// TODO: check and set winner
+
+	return m.winner
 }
 
 func (m *MatchData) Next() Match {
@@ -67,4 +73,8 @@ func (m *MatchData) Players() []interfaces.Player {
 
 func (m *MatchData) SetPlayer(player interfaces.Player) {
 	m.players = append(m.players, player)
+}
+
+func (m *MatchData) SetWinner(player interfaces.Player) {
+	m.winner = player
 }

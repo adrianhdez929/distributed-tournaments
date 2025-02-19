@@ -20,13 +20,23 @@ else
     echo "Network servers created."
 fi
 
+# check router:base docker image existence 
+
+docker image inspect router >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+    echo "Image router:base exists."
+else
+    docker build -t router:base -f router/router_base.Dockerfile router/
+    echo "Image router:base created."
+fi
+
 # check router docker image existence 
 
 docker image inspect router >/dev/null 2>&1
 if [ $? -eq 0 ]; then
     echo "Image router exists."
 else
-    docker build -t router -f router/Dockerfile .
+    docker build -t router -f router/router.Dockerfile router/
     echo "Image router created."
 fi
 
@@ -39,8 +49,7 @@ if [ $? -eq 0 ]; then
     echo "Container router removed."    
 fi
 
-# add --rm??
-docker run -d --name router router
+docker run -d --rm --name router --cap-add NET_ADMIN -e PYTHONUNBUFFERED=1 router
 echo "Container router executed."
 
 # attach router to client and server networks
@@ -48,14 +57,10 @@ echo "Container router executed."
 docker network connect --ip 10.0.10.254 clients router
 docker network connect --ip 10.0.11.254 servers router
 
+docker run -d --rm --name mcproxy --cap-add NET_ADMIN -e PYTHONUNBUFFERED=1 router
+echo "Container mcproxy executed."
+
+docker network connect --ip 10.0.11.253 servers mcproxy
+docker network connect --ip 10.0.10.253 clients mcproxy
+
 echo "Container router connected to client and server networks."
-
-# check chord docker image existence 
-
-# docker image inspect chord >/dev/null 2>&1
-# if [ $? -eq 0 ]; then
-#     echo "Image chord exists."
-# else
-#     docker build -t chord -f chord/chord.Dockerfile chord/
-#     echo "Image chord created."
-# fi

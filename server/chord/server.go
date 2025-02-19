@@ -3,7 +3,7 @@ package chord
 import (
 	"fmt"
 	"log"
-	"math/rand"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -12,6 +12,7 @@ import (
 )
 
 const MULTICAST_MASK = "224.0.0.1"
+const MULTICAST_PORT = 10000
 
 func decodeData(data []byte) string {
 	decoded := strings.Replace(string(data), "\x00", "", -1)
@@ -19,15 +20,20 @@ func decodeData(data []byte) string {
 }
 
 type ChordServer struct {
-	id          int
+	id          uint64
+	successor   ChordNodeReference
 	predecessor ChordNodeReference
 	m           int
 	reference   ChordNodeReference
 	finger      []ChordNodeReference
-	lock        sync.Mutex
+	lock        *sync.Mutex
+	data        map[string]string
+	next        int
+	channel     chan string
+	// tournamentsData map[string]*pb.Tournament
 }
 
-func NewChordServer(ip string, port int, m int) *ChordServer {
+func NewChordServer(ip string, port int, m int, serviceChannel chan string) *ChordServer {
 	reference := NewChordNodeReference(ip, port)
 	finger := make([]ChordNodeReference, m)
 
@@ -38,155 +44,220 @@ func NewChordServer(ip string, port int, m int) *ChordServer {
 	server := &ChordServer{
 		id:          reference.Id,
 		m:           m,
-		predecessor: reference,
+		successor:   reference,
+		predecessor: ChordNodeReference{Id: 0, Ip: "", Port: 0},
 		reference:   reference,
 		finger:      finger,
-		lock:        sync.Mutex{},
+		lock:        &sync.Mutex{},
+		data:        make(map[string]string),
+		next:        0,
+		channel:     serviceChannel,
+		// tournamentsData: make(map[string]*pb.Tournament),
 	}
 
 	go server.stabilize()
 	go server.fixFinger()
-
+	go server.checkPredecessor()
 	go server.start()
 
 	return server
 }
 
-func (n *ChordServer) inBetween(k int, start int, end int) bool {
-	k = k % (2 ^ n.m)
-	start = start % (2 ^ n.m)
-	end = end % (2 ^ n.m)
+func (n *ChordServer) inBetween(k uint64, start uint64, end uint64) bool {
 
-	if end < start {
-		return k >= start && k < end
+	if start < end {
+		return start < k && k <= end
 	}
-
-	return k >= start || k < end
+	return start < k || k <= end
 }
 
-func (n *ChordServer) inRange(k int, start int, end int) bool {
-	lstart := (start + 1) % (2 ^ n.m)
-
-	return n.inBetween(k, lstart, end)
-}
-
-func (n *ChordServer) inBetweenComp(k int, start int, end int) bool {
-	lend := (end - 1) % (2 ^ n.m)
-
-	return n.inBetween(k, start, lend)
-}
-
-func (n *ChordServer) Id() int {
+func (n *ChordServer) Id() uint64 {
 	return n.id
 }
 
 func (n *ChordServer) Successor() ChordNodeReference {
-	return n.finger[0]
+	return n.successor
 }
 
 func (n *ChordServer) setSuccessor(node ChordNodeReference) {
 	n.lock.Lock()
-	defer n.lock.Unlock()
-	n.finger[0] = node
+	n.successor = node
+	n.lock.Unlock()
 }
 
 func (n *ChordServer) Reference() ChordNodeReference {
 	return n.reference
 }
 
-func (n *ChordServer) FindPredecessor(id int) ChordNodeReference {
+func (n *ChordServer) FindPredecessor(id uint64) ChordNodeReference {
 	node := n.reference
 
-	if node.Id == n.Successor().Id {
+	successor, err := node.Successor()
+
+	if err != nil {
+		log.Printf("FindPredecessor: cannot reach node %s", node)
+		return n.reference
+	}
+
+	if successor.Id == node.Id {
+		log.Printf("FindPredecessor: node %s is self successor", node)
 		return node
 	}
 
-	for !n.inBetweenComp(id, node.Id, node.Successor().Id) && node.Id != 0 {
+	for !n.inBetween(id, node.Id, successor.Id) && node.Id != 0 {
 		log.Default().Printf("FindPredecessor: calling ClosestPrecedingFinger from %s to %s\n", n.reference.String(), node.String())
-		node = node.ClosestPrecedingFinger(id)
+		x, err := node.ClosestPrecedingFinger(id)
 
-		if node.Id == n.reference.Id {
-			break
+		if err != nil {
+			log.Printf("FindPredecessor: error while calling closingPrecedingFinger to node %s", node)
+			return n.reference
+		}
+
+		node = x
+		successor, err = node.Successor()
+
+		if err != nil {
+			log.Printf("FindPredecessor: cannot reach node %s", node)
+			return n.reference
+		}
+
+		if successor.Id == node.Id {
+			log.Printf("FindPredecessor: node %s is self successor", node)
+			return node
 		}
 	}
 
 	return node
 }
 
-func (n *ChordServer) FindSuccessor(id int) ChordNodeReference {
+func (n *ChordServer) FindSuccessor(id uint64) ChordNodeReference {
 	node := n.FindPredecessor(id)
 
-	return node.Successor()
+	succ, err := node.Successor()
+
+	if err != nil {
+		return n.reference
+	}
+
+	return succ
 }
 
-func (n *ChordServer) ClosestPrecedingFinger(id int) ChordNodeReference {
+func (n *ChordServer) ClosestPrecedingFinger(id uint64) ChordNodeReference {
 	for i := n.m - 1; i >= 0; i-- {
-		if n.inRange(n.finger[i].Id, n.reference.Id, id) {
-			if n.finger[i].Id != n.reference.Id {
-				return n.finger[i]
-			} else {
-				return n.reference
-			}
+		if n.finger[i].Id != 0 && n.finger[i].Id != n.reference.Id && n.inBetween(n.finger[i].Id, n.reference.Id, id) {
+			return n.finger[i]
 		}
 	}
 	return n.reference
 }
 
-func (n *ChordServer) join(node ChordNodeReference) {
-	time.Sleep(10 * time.Second)
-	n.predecessor = n.reference
-	log.Default().Printf("join: calling FindSuccessor from %s to %s\n", n.reference.String(), node.String())
-	n.setSuccessor(node.FindSuccessor(n.Id()))
-}
-
-func (n *ChordServer) notify(node ChordNodeReference) {
-	if node.Id == n.reference.Id {
-		return
+func (n *ChordServer) StoreKey(key string, value string, factor int, opcode int) error {
+	if factor <= 0 {
+		return nil
 	}
 
-	if n.predecessor.Id == n.reference.Id || n.inRange(node.Id, n.predecessor.Id, n.reference.Id) {
-		n.predecessor = node
+	n.lock.Lock()
+	n.data[key] = value
+	n.lock.Unlock()
+	err := n.Successor().StoreKey(key, value, factor-1, opcode) // constant replication factor 2 this node and its successor via request
+
+	if err != nil {
+		log.Printf("storeKey: cannot replicate to successor %s", n.Successor().String())
+		return err
 	}
+
+	n.channel <- fmt.Sprintf("%d,%s,%s", opcode, key, n.Successor().Ip)
+
+	return nil
 }
 
-func (n *ChordServer) stabilize() {
+func (n *ChordServer) RetrieveKey(key string) (string, error) {
+	kHash := getShaRepr(key)
+	node := n.FindSuccessor(kHash)
+	return node.RetrieveKey(key)
+}
+
+func (n *ChordServer) checkPredecessor() {
+	time.Sleep(5 * time.Second)
+
 	for {
-		if n.Successor().Id != 0 {
-			log.Default().Printf("stabilize: calling GetPredecessor from %s to %s\n", n.reference.String(), n.Successor().String())
-			x := n.Successor().Predecessor()
-
-			if x.Id != n.reference.Id {
-				if n.Successor().Id == n.Id() || n.inRange(x.Id, n.Id(), n.Successor().Id) {
-					n.setSuccessor(x)
-				}
+		if n.predecessor.Id != 0 {
+			err := n.predecessor.CheckPredecessor()
+			if err != nil {
+				log.Default().Printf("checkPredecessor: predecessor did not respond")
+				n.predecessor = NewChordNodeReference("", 0)
 			}
-
-			if n.Successor().Id != 0 && n.Successor().Id != n.Id() {
-				log.Default().Printf("stabilize: calling Notify from %s to %s\n", n.reference.String(), n.Successor().String())
-				n.Successor().Notify(n.reference)
-			}
-		}
-		if n.Successor().Id == 0 && n.predecessor.Id != 0 {
-			n.setSuccessor(n.predecessor)
 		}
 		time.Sleep(10 * time.Second)
 	}
 }
 
-func (n *ChordServer) fixFinger() {
-	time.Sleep(10 * time.Second)
+func (n *ChordServer) join(node ChordNodeReference) error {
+	if node.Id != 0 {
+		log.Printf("join: node %s joining node %s", n.reference.String(), node.String())
+		n.predecessor = NewChordNodeReference("", 0)
+		succ, err := node.FindSuccessor(n.Id())
+		if err != nil {
+			log.Printf("join: failed to get successor from %s", node.String())
+			return err
+		}
+		log.Printf("join: setting node %s successor as %s", n.reference.String(), succ.String())
+		n.setSuccessor(succ)
+		n.Successor().Notify(n.reference)
+	} else {
+		n.setSuccessor(n.reference)
+		n.predecessor = NewChordNodeReference("", 0)
+	}
+
+	return nil
+}
+
+func (n *ChordServer) notify(node ChordNodeReference) {
+	log.Printf("notify: from %s to %s", n.reference.String(), node.String())
+
+	if node.Id == n.Id() {
+		return
+	}
+
+	if n.predecessor.Id == 0 || n.inBetween(node.Id, n.predecessor.Id, n.Id()) {
+		log.Printf("notify: updating predecessor from %s to %s", n.predecessor.String(), node.String())
+		n.predecessor = node
+	}
+}
+
+func (n *ChordServer) stabilize() {
+	time.Sleep(5 * time.Second)
 
 	for {
-		next := rand.Intn(n.m)
+		log.Printf("stabilize: predecessor %s, successor %s\n", n.predecessor.String(), n.Successor().String())
+		x, err := n.Successor().Predecessor()
 
-		n.lock.Lock()
-		log.Default().Printf("fixFinger: calling FindSuccessor from %s to %s\n", n.reference.String(), n.reference.String())
-		succ := n.FindSuccessor(n.reference.Id + (2^next)%(2^n.m))
-		if succ.Id != 0 {
-			n.finger[next] = succ
-			n.lock.Unlock()
+		if err != nil {
+			log.Printf("stabilize: cannot reach successor")
+			n.setSuccessor(n.reference)
+		}
 
-			log.Default().Printf("fixFinger:Finger table updated at index %d: %s\n", next, n.finger[next].String())
+		if n.inBetween(x.Id, n.Id(), n.Successor().Id) && x.Id != 0 {
+			log.Printf("stabilize: updating successor from %s to %s\n", n.Successor().String(), x.String())
+			n.setSuccessor(x)
+		}
+
+		n.Successor().Notify(n.reference)
+		time.Sleep(10 * time.Second)
+	}
+}
+
+func (n *ChordServer) fixFinger() {
+	time.Sleep(5 * time.Second)
+
+	for {
+		n.next++
+		if n.next >= n.m {
+			n.next = 0
+		}
+		node := n.FindSuccessor((n.Id() + uint64(math.Pow(2, float64(n.next)))) % uint64(math.Pow(2, float64(n.m))))
+		if node.Id != 0 {
+			n.finger[n.next] = node
 		}
 
 		time.Sleep(10 * time.Second)
@@ -195,7 +266,7 @@ func (n *ChordServer) fixFinger() {
 
 func (n *ChordServer) multicastAddress() {
 	for {
-		addr, err := net.ResolveUDPAddr("udp4", MULTICAST_MASK)
+		addr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("%s:%d", MULTICAST_MASK, MULTICAST_PORT))
 		if err != nil {
 			log.Default().Println(err)
 		}
@@ -204,13 +275,17 @@ func (n *ChordServer) multicastAddress() {
 			log.Default().Println(err)
 		}
 		conn.Write([]byte(fmt.Sprintf("%s:%d", n.reference.Ip, n.reference.Port)))
+		// log.Default().Printf("multicastAddress: sending address %s:%d\n", n.reference.Ip, n.reference.Port)
 		conn.Close()
-		time.Sleep(10 * time.Second)
+		time.Sleep(5 * time.Second)
 	}
 }
 
 func (n *ChordServer) start() {
-	mAddr, err := net.ResolveUDPAddr("udp4", MULTICAST_MASK)
+	go n.multicastAddress()
+	go n.listen()
+
+	mAddr, err := net.ResolveUDPAddr("udp4", fmt.Sprintf("%s:%d", MULTICAST_MASK, MULTICAST_PORT))
 
 	if err != nil {
 		log.Default().Println(err)
@@ -222,34 +297,49 @@ func (n *ChordServer) start() {
 		log.Default().Println(err)
 	}
 
-	addrReader := make([]byte, 1024)
-	_, err = mSocket.Read(addrReader)
+	addressFound := false
+	remoteIP := ""
+	remotePort := 0
 
-	if err != nil {
-		log.Default().Println(err)
-		return
+	for !addressFound {
+		addrReader := make([]byte, 1024)
+		_, err = mSocket.Read(addrReader)
+
+		if err != nil {
+			log.Default().Println(err)
+			return
+		}
+
+		// Decode the received data and remove null bytes
+		receivedAddr := decodeData(addrReader)
+		log.Default().Printf("start: received address %s\n", receivedAddr)
+
+		parts := strings.Split(receivedAddr, ":")
+		if len(parts) != 2 {
+			log.Default().Printf("Invalid address format received: %s", receivedAddr)
+			return
+		}
+
+		// Split the received address into IP and port
+		remoteIP = parts[0]
+		remotePort, err = strconv.Atoi(parts[1])
+
+		if err != nil {
+			log.Default().Printf("Invalid port number received: %s", parts[1])
+			return
+		}
+
+		if parts[0] != n.reference.Ip {
+			addressFound = true
+			n.join(NewChordNodeReference(remoteIP, remotePort))
+			log.Default().Printf("start: joining node %s:%d\n", parts[0], remotePort)
+		}
 	}
 
-	// Decode the received data and remove null bytes
-	receivedAddr := decodeData(addrReader)
+	defer mSocket.Close()
+}
 
-	// Split the received address into IP and port
-	parts := strings.Split(receivedAddr, ":")
-	if len(parts) != 2 {
-		log.Default().Printf("Invalid address format received: %s", receivedAddr)
-		return
-	}
-
-	remoteIP := parts[0]
-	remotePort, err := strconv.Atoi(parts[1])
-	if err != nil {
-		log.Default().Printf("Invalid port number received: %s", parts[1])
-		return
-	}
-
-	go n.join(NewChordNodeReference(remoteIP, remotePort))
-
-	// Create TCP address for local listening
+func (n *ChordServer) listen() {
 	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", n.reference.Ip, n.reference.Port))
 
 	if err != nil {
@@ -262,10 +352,7 @@ func (n *ChordServer) start() {
 		log.Default().Println(err)
 	}
 
-	defer mSocket.Close()
 	defer socket.Close()
-
-	go n.multicastAddress()
 
 	for {
 		conn, err := socket.Accept()
@@ -296,7 +383,7 @@ func (n *ChordServer) handleConnection(conn net.Conn) {
 
 	switch ChordOpcode(opcode) {
 	case FIND_PREDECESSOR:
-		id, err := strconv.Atoi(message[1])
+		id, err := strconv.ParseUint(message[1], 10, 64)
 		if err != nil {
 			log.Default().Printf("handleConnection: FIND_PREDECESSOR cannot parse int from str %s\n", message[1])
 			log.Default().Println(err)
@@ -304,7 +391,7 @@ func (n *ChordServer) handleConnection(conn net.Conn) {
 		result := n.FindPredecessor(id)
 		responseData = fmt.Sprintf("%d,%s", result.Id, result.Ip)
 	case FIND_SUCCESSOR:
-		id, err := strconv.Atoi(message[1])
+		id, err := strconv.ParseUint(message[1], 10, 64)
 		if err != nil {
 			log.Default().Printf("handleConnection: FIND_SUCCESSOR cannot parse int from str %s\n", message[1])
 			log.Default().Println(err)
@@ -315,25 +402,42 @@ func (n *ChordServer) handleConnection(conn net.Conn) {
 		if n.predecessor.Id != 0 {
 			responseData = fmt.Sprintf("%d,%s", n.predecessor.Id, n.predecessor.Ip)
 		} else {
-			responseData = fmt.Sprintf("%d,%s", n.Id(), n.Reference().Ip)
+			responseData = fmt.Sprintf("%d,%s", n.Id(), n.reference.Ip)
 		}
 	case GET_SUCCESSOR:
 		if n.Successor().Id != 0 {
 			responseData = fmt.Sprintf("%d,%s", n.Successor().Id, n.Successor().Ip)
 		} else {
-			responseData = fmt.Sprintf("%d,%s", n.Id(), n.Reference().Ip)
+			responseData = fmt.Sprintf("%d,%s", n.Id(), n.reference.Ip)
 		}
 	case NOTIFY:
 		ip := message[2]
 		n.notify(NewChordNodeReference(ip, n.reference.Port))
 	case CLOSEST_PRECEDING_FINGER:
-		id, err := strconv.Atoi(message[1])
+		id, err := strconv.ParseUint(message[1], 10, 64)
 		if err != nil {
 			log.Default().Printf("handleConnection: CLOSEST_PRECEDING_FINGER cannot parse int from str %s\n", message[1])
 			log.Default().Println(err)
 		}
 		closestFinger := n.ClosestPrecedingFinger(id)
 		responseData = fmt.Sprintf("%d,%s", closestFinger.Id, closestFinger.Ip)
+	case STORE_KEY:
+		key := message[1]
+		value := message[2]
+		factor, err := strconv.Atoi(message[3])
+		opcode, err := strconv.Atoi(message[4])
+
+		if err != nil {
+			log.Printf("handleConnection: STORE_KEY cannot parse replication factor from str %s\n", message[2])
+			return
+		}
+		n.StoreKey(key, value, factor, opcode)
+	case RETRIEVE_KEY:
+		key := message[1]
+		value := n.data[key]
+		responseData = fmt.Sprint(value)
+	case CHECK_PREDECESSOR:
+		responseData = "exist"
 	}
 
 	conn.Write([]byte(responseData))

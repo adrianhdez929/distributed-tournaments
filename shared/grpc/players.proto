@@ -4,7 +4,7 @@ package players;
 
 option go_package = "shared/grpc;grpc";
 
-message Game {
+message PlayerFile {
   string id = 1;
   string name = 2;
   string constructor_name = 3;

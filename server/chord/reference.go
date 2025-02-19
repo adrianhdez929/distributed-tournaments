@@ -4,11 +4,14 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
+	"math"
 	"math/big"
 	"net"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type ChordOpcode int
@@ -20,9 +23,12 @@ const (
 	GET_PREDECESSOR
 	NOTIFY
 	CLOSEST_PRECEDING_FINGER
+	STORE_KEY
+	RETRIEVE_KEY
+	CHECK_PREDECESSOR
 )
 
-func getShaRepr(data string) int {
+func getShaRepr(data string) uint64 {
 	hash := sha1.New()
 	_, err := hash.Write([]byte(data))
 	if err != nil {
@@ -37,10 +43,10 @@ func getShaRepr(data string) int {
 		log.Default().Println("getShaRepr: Failed to convert hex hash to int")
 		return 0
 	}
-	return int(intNum.Int64())
+	return uint64(intNum.Uint64()) % uint64(math.Pow(2, float64(10)))
 }
 
-func GetSha(data string) int {
+func GetSha(data string) uint64 {
 	return getShaRepr(data)
 }
 
@@ -69,12 +75,16 @@ func checkValidIp(ip string) bool {
 
 // Stores the reference to a chord node
 type ChordNodeReference struct {
-	Id   int
+	Id   uint64
 	Ip   string
 	Port int
 }
 
 func NewChordNodeReference(ip string, port int) ChordNodeReference {
+	if ip == "" {
+		return ChordNodeReference{Id: 0, Ip: "", Port: 0}
+	}
+
 	validIp := checkValidIp(ip)
 	if !validIp {
 		log.Default().Printf("NewChordNodeReference: Invalid IP address %s\n", ip)
@@ -83,93 +93,135 @@ func NewChordNodeReference(ip string, port int) ChordNodeReference {
 	return ChordNodeReference{Id: getShaRepr(ip), Ip: ip, Port: port}
 }
 
-func (n ChordNodeReference) sendData(opcode ChordOpcode, data string) []byte {
+func (n ChordNodeReference) sendData(opcode ChordOpcode, data string) ([]byte, error) {
 	socket, err := net.Dial("tcp", fmt.Sprintf("%s:%d", n.Ip, n.Port))
 	if err != nil {
 		log.Default().Printf("sendData: Failed to connect to node %s:%d", n.Ip, n.Port)
 		log.Default().Println(err)
-		return nil
+		return nil, err
 	}
+
 	defer socket.Close()
+
+	err = socket.SetDeadline(time.Now().Add(5 * time.Second))
+
+	if err != nil {
+		return nil, err
+	}
 
 	_, err = socket.Write([]byte(fmt.Sprintf("%d,%s", opcode, data)))
 	if err != nil {
 		log.Default().Printf("sendData: Failed to send data to node %s:%d", n.Ip, n.Port)
 		log.Default().Println(err)
-		return nil
+		return nil, err
 	}
 
-	if opcode == NOTIFY {
-		return make([]byte, 0)
+	if opcode == NOTIFY || opcode == STORE_KEY {
+		return make([]byte, 0), nil
 	}
 
 	response := make([]byte, 1024)
 	nBytes, err := socket.Read(response)
+
+	if err == io.EOF {
+		return make([]byte, 0), nil
+	}
+
 	if err != nil {
 		log.Default().Printf("sendData: opcode %d\n", opcode)
 		log.Default().Printf("sendData: Failed to read response from node %s:%d", n.Ip, n.Port)
 		log.Default().Println(err)
-		return nil
+		return nil, err
 	}
 
-	return response[:nBytes]
+	return response[:nBytes], nil
 }
 
-func (n ChordNodeReference) FindSuccessor(id int) ChordNodeReference {
-	response := n.sendData(FIND_SUCCESSOR, fmt.Sprintf("%d", id))
-	if response == nil {
-		return ChordNodeReference{Id: 0, Ip: "", Port: 0}
+func (n ChordNodeReference) CheckPredecessor() error {
+	_, err := n.sendData(CHECK_PREDECESSOR, "")
+	return err
+}
+
+func (n ChordNodeReference) FindSuccessor(id uint64) (ChordNodeReference, error) {
+	response, err := n.sendData(FIND_SUCCESSOR, fmt.Sprintf("%d", id))
+	if err != nil {
+		return ChordNodeReference{Id: 0, Ip: "", Port: 0}, err
 	}
 
 	decoded := strings.Split(string(response), ",")
 	log.Default().Printf("FindSuccessor: decoded %s\n", decoded[1])
-	return NewChordNodeReference(decoded[1], n.Port)
+	return NewChordNodeReference(decoded[1], n.Port), nil
 }
 
-func (n ChordNodeReference) FindPredecessor(id int) ChordNodeReference {
-	response := n.sendData(FIND_PREDECESSOR, fmt.Sprintf("%d", id))
-	if response == nil {
-		return ChordNodeReference{Id: 0, Ip: "", Port: 0}
+func (n ChordNodeReference) FindPredecessor(id int) (ChordNodeReference, error) {
+	response, err := n.sendData(FIND_PREDECESSOR, fmt.Sprintf("%d", id))
+	if err != nil {
+		return ChordNodeReference{Id: 0, Ip: "", Port: 0}, err
 	}
 
 	decoded := strings.Split(string(response), ",")
-	return NewChordNodeReference(decoded[1], n.Port)
+	return NewChordNodeReference(decoded[1], n.Port), nil
 }
 
-func (n *ChordNodeReference) Successor() ChordNodeReference {
-	response := n.sendData(GET_SUCCESSOR, "")
-	if response == nil {
-		return ChordNodeReference{Id: 0, Ip: "", Port: 0}
+func (n ChordNodeReference) Successor() (ChordNodeReference, error) {
+	response, err := n.sendData(GET_SUCCESSOR, "")
+	if err != nil {
+		return ChordNodeReference{Id: 0, Ip: "", Port: 0}, err
+	}
+
+	parts := strings.Split(string(response), ",")
+	if len(parts) != 2 {
+		return ChordNodeReference{Id: 0, Ip: "", Port: 0}, fmt.Errorf("failed to decode message")
+	}
+
+	id, err := strconv.ParseUint(parts[0], 10, 64)
+	if err != nil {
+		return ChordNodeReference{Id: 0, Ip: "", Port: 0}, fmt.Errorf("failed to get id from message")
+	}
+
+	return ChordNodeReference{Id: id, Ip: parts[1], Port: n.Port}, nil
+}
+
+func (n ChordNodeReference) Predecessor() (ChordNodeReference, error) {
+	response, err := n.sendData(GET_PREDECESSOR, "")
+	if err != nil {
+		return ChordNodeReference{Id: 0, Ip: "", Port: 0}, err
 	}
 
 	decoded := strings.Split(string(response), ",")
-	return NewChordNodeReference(decoded[1], n.Port)
+	return NewChordNodeReference(decoded[1], n.Port), nil
 }
 
-func (n ChordNodeReference) Predecessor() ChordNodeReference {
-	response := n.sendData(GET_PREDECESSOR, "")
-	if response == nil {
-		return ChordNodeReference{Id: 0, Ip: "", Port: 0}
+func (n ChordNodeReference) Notify(node ChordNodeReference) error {
+	_, err := n.sendData(NOTIFY, fmt.Sprintf("%d,%s", node.Id, node.Ip))
+	return err
+}
+
+func (n ChordNodeReference) ClosestPrecedingFinger(id uint64) (ChordNodeReference, error) {
+	response, err := n.sendData(CLOSEST_PRECEDING_FINGER, fmt.Sprintf("%d", id))
+	if err != nil {
+		return ChordNodeReference{Id: 0, Ip: "", Port: 0}, err
 	}
 
 	decoded := strings.Split(string(response), ",")
-	return NewChordNodeReference(decoded[1], n.Port)
-}
-
-func (n ChordNodeReference) Notify(node ChordNodeReference) {
-	n.sendData(NOTIFY, fmt.Sprintf("%d,%s", node.Id, node.Ip))
-}
-
-func (n ChordNodeReference) ClosestPrecedingFinger(id int) ChordNodeReference {
-	response := n.sendData(CLOSEST_PRECEDING_FINGER, fmt.Sprintf("%d", id))
-	if response == nil {
-		return ChordNodeReference{Id: 0, Ip: "", Port: 0}
-	}
-
-	decoded := strings.Split(string(response), ",")
-	return NewChordNodeReference(decoded[1], n.Port)
+	return NewChordNodeReference(decoded[1], n.Port), nil
 }
 
 func (n ChordNodeReference) String() string {
 	return fmt.Sprintf("%d:%s:%d", n.Id, n.Ip, n.Port)
+}
+
+func (n ChordNodeReference) StoreKey(key string, value string, factor int, opcode int) error {
+	_, err := n.sendData(STORE_KEY, fmt.Sprintf("%s,%s,%d,%d", key, value, factor, opcode))
+	return err
+}
+
+func (n ChordNodeReference) RetrieveKey(key string) (string, error) {
+	response, err := n.sendData(RETRIEVE_KEY, key)
+
+	if err != nil {
+		return "", err
+	}
+
+	return decodeData(response), nil
 }

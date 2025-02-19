@@ -3,7 +3,11 @@ package tournaments
 import (
 	"context"
 	"fmt"
+	"log"
+	"strconv"
+	"strings"
 	"time"
+	"tournament_server/chord"
 	"tournament_server/games"
 	"tournament_server/models"
 	"tournament_server/players"
@@ -11,21 +15,144 @@ import (
 	pb "shared/grpc"
 	"shared/interfaces"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 )
+
+const REPLICATION_FACTOR = 3
+
+const CREATE = 0
+const UPDATE = 1
 
 type TournamentService struct {
 	pb.UnimplementedTournamentServiceServer
 	repo    TournamentRepository
 	manager *TournamentManager
+	node    *chord.ChordServer
+	channel chan string
 }
 
-func NewTournamentService(repo TournamentRepository) *TournamentService {
-	return &TournamentService{
+func NewTournamentService(repo TournamentRepository, manager *TournamentManager, node *chord.ChordServer, channel chan string) *TournamentService {
+	service := &TournamentService{
 		repo:    repo,
-		manager: NewTournamentManager(repo),
+		manager: manager,
+		node:    node,
+		channel: channel,
 	}
+	go service.replicateData()
+	go service.handleNotifications()
+
+	return service
+}
+
+func (s *TournamentService) parseNotification(notification string) {
+	parts := strings.Split(notification, ",")
+	opcode, err := strconv.Atoi(parts[0])
+
+	if err != nil {
+		log.Printf("tournamentService:parseNotification: cannot parse opcode from str %s\n", parts[0])
+	}
+
+	switch opcode {
+	case 0: // REPLICATE_CREATE
+		key := parts[1]
+		owner := parts[2]
+
+		tournamentId := strings.Split(key, ":")[1]
+
+		conn, err := grpc.NewClient(
+			fmt.Sprintf("%s:%d", owner, 50053),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+
+		if err != nil {
+			log.Printf("tournamentService:parseNotification: failed to connect to key owner")
+			return
+		}
+
+		client := pb.NewTournamentServiceClient(conn)
+		_, err = client.CreateTournament(context.Background(), &pb.CreateTournamentRequest{Name: tournamentId})
+
+		if err != nil {
+			log.Printf("tournamentService:parseNotification: could not update tournament in %s", owner)
+			return
+		}
+	case 1: // REPLICATE_UPDATE
+		key := parts[1]
+		owner := parts[2]
+
+		tournamentId := strings.Split(key, ":")[1]
+		tournament, _ := s.repo.Get(context.Background(), tournamentId)
+
+		conn, err := grpc.NewClient(
+			fmt.Sprintf("%s:%d", owner, 50053),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+		)
+
+		if err != nil {
+			log.Printf("tournamentService:parseNotification: failed to connect to key owner")
+			return
+		}
+
+		client := pb.NewTournamentServiceClient(conn)
+		_, err = client.UpdateTournament(context.Background(), &pb.UpdateTournamentRequest{
+			Tournament: tournament,
+		})
+		if err != nil {
+			log.Printf("tournamentService:parseNotification: could not update tournament in %s", owner)
+			return
+		}
+	}
+}
+
+func (s *TournamentService) handleNotifications() {
+	for {
+		// this sends ip addresses to replicate data to
+		notification := <-s.channel
+		s.parseNotification(notification)
+
+	}
+}
+
+func (s *TournamentService) replicateData() {
+	for {
+		log.Printf("tournamentService:replicateData: replicating tournament data")
+		tList, err := s.repo.List(context.Background())
+		if err != nil {
+			return
+		}
+
+		for _, t := range tList {
+			owner := s.getTournamentOwner(t.Name)
+			log.Printf("tournamentService:replicateData: replicating tournament %s to node %d", t.Name, owner.Id)
+			conn, err := grpc.NewClient(
+				fmt.Sprintf("%s:%d", owner.Ip, 50053),
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+			)
+
+			if err != nil {
+				log.Printf("failed to connect to connect to key owner")
+				continue
+			}
+
+			client := pb.NewTournamentServiceClient(conn)
+			client.UpdateTournament(context.Background(), &pb.UpdateTournamentRequest{Tournament: t})
+		}
+
+		time.Sleep(20 * time.Second)
+	}
+}
+
+func (s *TournamentService) getTournamentKey(name string) string {
+	return fmt.Sprintf("tournament:%s", name)
+}
+
+func (s *TournamentService) getTournamentOwner(name string) chord.ChordNodeReference {
+	tHash := chord.GetSha(s.getTournamentKey(name))
+	owner := s.node.FindSuccessor(tHash)
+	return owner
 }
 
 func (s *TournamentService) CreateTournament(ctx context.Context, req *pb.CreateTournamentRequest) (*pb.CreateTournamentResponse, error) {
@@ -33,70 +160,188 @@ func (s *TournamentService) CreateTournament(ctx context.Context, req *pb.Create
 		return nil, status.Error(codes.InvalidArgument, "tournament name is required")
 	}
 
-	tournament := s.createTournament()
+	log.Default().Printf("request to create tournament in service")
 
-	tournamentPb := &pb.Tournament{
-		Id:              tournament.Id(),
-		Name:            tournament.Id(),
-		Description:     tournament.Id(),
-		StartTimestamp:  fmt.Sprintf("%d", time.Now().Unix()),
-		Status:          pb.TournamentStatus_TOURNAMENT_STATUS_NOT_STARTED,
-		MaxParticipants: int32(len(tournament.Players())),
-		Game:            "",
-		Players:         []*pb.Player{},
+	owner := s.getTournamentOwner(req.Name)
+
+	log.Default().Printf("tournamentService:get: owner of tournament %s is %s", req.Name, owner.Ip)
+
+	if owner.Id == 0 {
+		return nil, status.Error(codes.NotFound, "tournament not found")
 	}
 
-	if err := s.repo.Create(ctx, tournamentPb); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create tournament: %v", err)
+	value, err := owner.RetrieveKey(s.getTournamentKey(req.Name))
+
+	if err != nil {
+		log.Default().Fatalf("tournamentService:createTournament: there was an error getting the tournament key")
 	}
 
-	go s.manager.AddTournament(tournament)
+	if value == "" {
+		// this server is the owner of the resource
+		if owner.Ip == s.node.Reference().Ip {
+			log.Default().Printf("owner is this server, creating tournament")
+			tournament := s.createTournament(req.Name)
 
-	return &pb.CreateTournamentResponse{
-		Tournament: tournamentPb,
-	}, nil
+			tournamentPb := &pb.Tournament{
+				Id:              tournament.Id(),
+				Name:            req.Name,
+				Description:     req.Description,
+				StartTimestamp:  fmt.Sprintf("%d", time.Now().Unix()),
+				Status:          pb.TournamentStatus_TOURNAMENT_STATUS_NOT_STARTED,
+				MaxParticipants: int32(len(tournament.Players())),
+				Game:            tournament.Game(),
+				Players:         DumpTournamentPlayers(tournament.Players()),
+				Matches:         DumpTournamentMatches(tournament.Matches()),
+			}
+
+			if err := s.repo.Create(ctx, tournamentPb); err != nil {
+				log.Fatalf("failed to create tournament: %s", err)
+				return nil, status.Errorf(codes.Internal, "failed to create tournament: %v", err)
+			}
+
+			go s.manager.AddTournament(tournament)
+
+			err := owner.StoreKey(s.getTournamentKey(req.Name), "existe", REPLICATION_FACTOR, CREATE)
+			if err != nil {
+				return nil, status.Error(codes.Internal, "error while storing key")
+			}
+			log.Default().Printf("tournamentService:createTournament: the key %s value is %s", s.getTournamentKey(req.Name), value)
+
+			return &pb.CreateTournamentResponse{
+				Tournament: tournamentPb,
+			}, nil
+			// the owner is another server
+		} else {
+			conn, err := grpc.NewClient(
+				fmt.Sprintf("%s:%d", owner.Ip, 50053),
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+			)
+
+			if err != nil {
+				return nil, status.Error(codes.Internal, "failed to connect to connect to key owner")
+			}
+
+			client := pb.NewTournamentServiceClient(conn)
+			res, err := client.CreateTournament(ctx, req)
+
+			return res, err
+		}
+	} else {
+		log.Default().Printf("tournamentService:createTournament: there is an existent key %s with value %s", s.getTournamentKey(req.Name), value)
+		return nil, status.Error(codes.AlreadyExists, "tournament already exists")
+	}
+}
+
+func (s *TournamentService) ReplicateCreateRequest(ctx context.Context, req *pb.ReplicateCreateRequest) (*pb.CreateTournamentResponse, error) {
+	if req.Tournament.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "tournament name is required")
+	}
+
+	_, err := s.manager.GetTournament(req.Tournament.Name)
+
+	if err != nil {
+		// tournament is not already running
+		tournament := s.createTournament(req.Tournament.Name)
+		go s.manager.AddTournament(tournament)
+
+		tournamentPb := &pb.Tournament{
+			Id:              tournament.Id(),
+			Name:            req.Tournament.Name,
+			Description:     req.Tournament.Description,
+			StartTimestamp:  fmt.Sprintf("%d", time.Now().Unix()),
+			Status:          pb.TournamentStatus_TOURNAMENT_STATUS_NOT_STARTED,
+			MaxParticipants: int32(len(tournament.Players())),
+			Game:            tournament.Game(),
+			Players:         DumpTournamentPlayers(tournament.Players()),
+			Matches:         DumpTournamentMatches(tournament.Matches()),
+		}
+
+		if err := s.repo.Create(ctx, tournamentPb); err != nil {
+			log.Fatalf("failed to create tournament: %s", err)
+			return nil, status.Errorf(codes.Internal, "failed to create tournament: %v", err)
+		}
+
+		return &pb.CreateTournamentResponse{
+			Tournament: tournamentPb,
+		}, nil
+	} else {
+		return nil, status.Error(codes.AlreadyExists, "tournament already exists")
+	}
 }
 
 func (s *TournamentService) GetTournament(ctx context.Context, req *pb.GetTournamentRequest) (*pb.GetTournamentResponse, error) {
-	if req.Id == "" {
-		return nil, status.Error(codes.InvalidArgument, "tournament ID is required")
+	if req.Name == "" {
+		return nil, status.Error(codes.InvalidArgument, "tournament Name is required")
 	}
 
-	tournament, err := s.manager.GetTournament(req.Id)
+	log.Default().Printf("request to get tournament in service")
 
-	// Tournament is not in memory, fetch from database
-	if err != nil {
-		dbTournament, err := s.repo.Get(ctx, req.Id)
+	log.Default().Printf("tournamentService:get: checking if the server has a copy of %s", req.Name)
 
-		fmt.Printf("db tournament: %v\n", dbTournament)
+	tournament, _ := s.repo.Get(ctx, req.Name)
 
-		fmt.Printf("requested tournament: %v\n", dbTournament)
-		fmt.Printf("requested tournament status: %v\n", dbTournament.Status)
-		fmt.Printf("requested tournament player wins: %v\n", dbTournament.PlayerWins)
-		fmt.Printf("requested tournament final winner: %v\n", dbTournament.FinalWinner)
-
-		if err != nil {
-			return nil, status.Errorf(codes.NotFound, "tournament not found: %v", err)
-		}
-
+	if tournament != nil {
+		log.Default().Printf("tournamentService:get: the server has a copy of %s", req.Name)
 		return &pb.GetTournamentResponse{
-			Tournament: dbTournament,
+			Tournament: tournament,
 		}, nil
 	}
 
-	statistics := GetStatistics(tournament)
+	owner := s.getTournamentOwner(req.Name)
+	log.Default().Printf("tournamentService:get: owner of tournament %s is %s", req.Name, owner.Ip)
 
-	fmt.Printf("requested tournament: %v\n", tournament)
-	fmt.Printf("requested tournament status: %v\n", tournament.Status())
-	fmt.Printf("requested tournament statistics: %v\n", statistics)
-	return &pb.GetTournamentResponse{
-		Tournament: &pb.Tournament{
-			Id:          tournament.Id(),
-			Status:      tournament.Status(),
-			PlayerWins:  statistics["player_wins"].(map[string]int32),
-			FinalWinner: statistics["final_winner"].(string),
-		},
-	}, nil
+	if owner.Id == 0 {
+		return nil, status.Error(codes.NotFound, "tournament not found")
+	}
+
+	value, err := owner.RetrieveKey(s.getTournamentKey(req.Name))
+
+	if err != nil {
+		return nil, status.Error(codes.Internal, "could not retrieve the key from owner")
+	}
+
+	if value == "" {
+		return nil, status.Error(codes.NotFound, "tournament not found")
+	} else {
+		// this server is the owner of the resource
+		if owner.Ip == s.node.Reference().Ip {
+
+			tournament, err := s.repo.Get(context.Background(), req.Name)
+
+			if err != nil {
+				return nil, status.Error(codes.Internal, "could not get tournament from repo")
+			}
+
+			return &pb.GetTournamentResponse{
+				Tournament: tournament,
+			}, nil
+			// the owner is another server in the network
+		} else {
+			conn, err := grpc.NewClient(
+				fmt.Sprintf("%s:%d", owner.Ip, 50053),
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
+			)
+
+			if err != nil {
+				return nil, status.Error(codes.Internal, "failed to connect to connect to key owner")
+			}
+
+			client := pb.NewTournamentServiceClient(conn)
+			res, err := client.GetTournament(ctx, &pb.GetTournamentRequest{Name: req.Name})
+
+			return res, err
+		}
+	}
+}
+
+func (s *TournamentService) UpdateTournament(ctx context.Context, req *pb.UpdateTournamentRequest) (*pb.UpdateTournamentResponse, error) {
+	err := s.repo.Update(ctx, req.Tournament)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "could not update tournament")
+	}
+	s.node.StoreKey(s.getTournamentKey(req.Tournament.Name), "existe", REPLICATION_FACTOR, UPDATE)
+
+	return &pb.UpdateTournamentResponse{Success: true}, nil
 }
 
 func (s *TournamentService) ListTournaments(ctx context.Context, req *pb.ListTournamentsRequest) (*pb.ListTournamentsResponse, error) {
@@ -104,20 +349,19 @@ func (s *TournamentService) ListTournaments(ctx context.Context, req *pb.ListTou
 		req.PageSize = 50 // Default page size
 	}
 
-	tournaments, nextPageToken, err := s.repo.List(ctx, req.PageSize, req.PageToken, pb.TournamentStatus_TOURNAMENT_STATUS_NOT_STARTED)
+	tournaments, err := s.repo.List(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list tournaments: %v", err)
 	}
 
 	return &pb.ListTournamentsResponse{
-		Tournaments:   tournaments,
-		NextPageToken: nextPageToken,
+		Tournaments: tournaments,
 	}, nil
 }
 
-func (s *TournamentService) createTournament() models.Tournament {
+func (s *TournamentService) createTournament(id string) models.Tournament {
 	// playerFactory, err := code.GetPlayerConstructor(receivedString, "NewGreedyPlayer")
-	playerFactory := players.NewGreedyPlayer
+	playerFactory := players.NewRandomPlayer
 	// if err != nil {
 	// 	fmt.Println("Error building dynamic object:", err)
 	// 	return
@@ -130,10 +374,10 @@ func (s *TournamentService) createTournament() models.Tournament {
 	// 	return
 	// }
 
-	return createTournament(playerFactory, gameFactory, 16)
+	return createTournament(id, playerFactory, gameFactory, 16)
 }
 
-func createTournament(playerFactory func(int) interfaces.Player, gameFactory func([]interfaces.Player) interfaces.Game, playerCount int) models.Tournament {
+func createTournament(id string, playerFactory func(int) interfaces.Player, gameFactory func([]interfaces.Player) interfaces.Game, playerCount int) models.Tournament {
 	players := make([]interfaces.Player, playerCount)
 	// matches := make([]models.Match, playerCount/2)
 
@@ -142,6 +386,6 @@ func createTournament(playerFactory func(int) interfaces.Player, gameFactory fun
 		// fmt.Printf("creating player %s\n", players[i].Id())
 	}
 
-	tournament := models.NewTournamentData(players, gameFactory)
+	tournament := models.NewTournamentData(id, players, gameFactory)
 	return tournament
 }

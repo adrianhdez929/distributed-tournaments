@@ -5,8 +5,6 @@ import (
 	"shared/interfaces"
 
 	pb "shared/grpc"
-
-	"github.com/google/uuid"
 )
 
 type Tournament interface {
@@ -15,8 +13,12 @@ type Tournament interface {
 	TotalRounds() int
 	Players() []interfaces.Player
 	Winner() interfaces.Player
-	Matches() []Match
-	AddMatches(matches []Match)
+	Matches() map[string]Match
+	SetMatch(matchId string, match Match)
+	InitialMatches() []Match
+	Game() string
+	// AddMatches(matches []Match)
+	SetWinner(winner interfaces.Player)
 	SetStatus(status pb.TournamentStatus)
 	Status() pb.TournamentStatus
 	State() map[string]interface{}
@@ -24,21 +26,24 @@ type Tournament interface {
 }
 
 var initialState = map[string]interface{}{
-	"player_wins":  make(map[string]int32),
-	"final_winner": "",
+	"player_wins": make(map[string]int32),
+	"winner":      "",
 }
 
 type TournamentData struct {
-	id           string
-	players      []interfaces.Player
-	matches      []Match
-	currentRound int
-	rounds       int
-	status       pb.TournamentStatus
-	state        map[string]interface{}
+	id             string
+	players        []interfaces.Player
+	matches        map[string]Match
+	initialMatches []Match
+	currentRound   int
+	rounds         int
+	status         pb.TournamentStatus
+	winner         interfaces.Player
+	state          map[string]interface{}
+	game           string
 }
 
-func NewTournamentData(players []interfaces.Player, gameFactory func([]interfaces.Player) interfaces.Game) *TournamentData {
+func NewTournamentData(id string, players []interfaces.Player, gameFactory func([]interfaces.Player) interfaces.Game) *TournamentData {
 	initialMatchCount := float64(len(players) / 2)
 
 	totalRounds := int(math.Log2(initialMatchCount)) + 1
@@ -51,13 +56,15 @@ func NewTournamentData(players []interfaces.Player, gameFactory func([]interface
 	}
 
 	return &TournamentData{
-		id:           uuid.New().String(),
-		players:      players,
-		matches:      matches,
-		currentRound: 1,
-		rounds:       totalRounds,
-		status:       pb.TournamentStatus_TOURNAMENT_STATUS_NOT_STARTED,
-		state:        initialState,
+		id:             id,
+		players:        players,
+		initialMatches: matches,
+		matches:        make(map[string]Match),
+		currentRound:   1,
+		rounds:         totalRounds,
+		status:         pb.TournamentStatus_TOURNAMENT_STATUS_NOT_STARTED,
+		state:          initialState,
+		game:           gameFactory([]interfaces.Player{}).Name(),
 	}
 }
 
@@ -78,7 +85,7 @@ func (t *TournamentData) Players() []interfaces.Player {
 }
 
 func (t *TournamentData) Winner() interfaces.Player {
-	return t.state["winner"].(interfaces.Player)
+	return t.winner
 }
 
 func (t *TournamentData) CurrentRound() int {
@@ -89,13 +96,25 @@ func (t *TournamentData) TotalRounds() int {
 	return t.rounds
 }
 
-func (t *TournamentData) Matches() []Match {
+func (t *TournamentData) Matches() map[string]Match {
 	return t.matches
 }
 
-func (t *TournamentData) AddMatches(matches []Match) {
-	t.matches = append(t.matches, matches...)
+func (t *TournamentData) SetMatch(matchId string, match Match) {
+	t.matches[matchId] = match
 }
+
+func (t *TournamentData) InitialMatches() []Match {
+	return t.initialMatches
+}
+
+func (t *TournamentData) Game() string {
+	return t.game
+}
+
+// func (t *TournamentData) AddMatches(matches []Match) {
+// 	t.matches = append(t.matches, matches...)
+// }
 
 func (t *TournamentData) State() map[string]interface{} {
 	return t.state
@@ -103,6 +122,11 @@ func (t *TournamentData) State() map[string]interface{} {
 
 func (t *TournamentData) SetState(key string, value interface{}) {
 	t.state[key] = value
+}
+
+func (t *TournamentData) SetWinner(winner interfaces.Player) {
+	t.winner = winner
+	t.state["winner"] = winner
 }
 
 func createTournament(rounds int, gameFactory func([]interfaces.Player) interfaces.Game) []Match {
