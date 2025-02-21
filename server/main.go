@@ -44,7 +44,7 @@ func main() {
 	flag.Parse()
 
 	serviceChannel := make(chan string)
-	node := chord.NewChordServer(*ip, *chord_port, 15, serviceChannel)
+	node := chord.NewChordServer(*ip, *chord_port, 58, serviceChannel)
 
 	// Tournament client handler
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", *port))

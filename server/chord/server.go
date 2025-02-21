@@ -1,9 +1,12 @@
 package chord
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math"
+	"math/big"
 	"net"
 	"strconv"
 	"strings"
@@ -22,6 +25,7 @@ func decodeData(data []byte) string {
 type ChordServer struct {
 	id          uint64
 	successor   ChordNodeReference
+	successors  []ChordNodeReference
 	predecessor ChordNodeReference
 	m           int
 	reference   ChordNodeReference
@@ -44,6 +48,7 @@ func NewChordServer(ip string, port int, m int, serviceChannel chan string) *Cho
 	server := &ChordServer{
 		id:          reference.Id,
 		m:           m,
+		successors:  make([]ChordNodeReference, m),
 		successor:   reference,
 		predecessor: ChordNodeReference{Id: 0, Ip: "", Port: 0},
 		reference:   reference,
@@ -61,6 +66,28 @@ func NewChordServer(ip string, port int, m int, serviceChannel chan string) *Cho
 	go server.start()
 
 	return server
+}
+
+func getShaRepr(data string) uint64 {
+	hash := sha1.New()
+	_, err := hash.Write([]byte(data))
+	if err != nil {
+		log.Default().Println("getShaRepr: Failed to hash data")
+		return 0
+	}
+
+	hexNum := hex.EncodeToString(hash.Sum(nil))
+	intNum, ok := new(big.Int).SetString(hexNum, 16)
+
+	if !ok {
+		log.Default().Println("getShaRepr: Failed to convert hex hash to int")
+		return 0
+	}
+	return uint64(intNum.Uint64())
+}
+
+func (n *ChordServer) GetSha(data string) uint64 {
+	return getShaRepr(data) % uint64(math.Pow(2, float64(n.m)))
 }
 
 func (n *ChordServer) inBetween(k uint64, start uint64, end uint64) bool {
@@ -172,7 +199,7 @@ func (n *ChordServer) StoreKey(key string, value string, factor int, opcode int)
 }
 
 func (n *ChordServer) RetrieveKey(key string) (string, error) {
-	kHash := getShaRepr(key)
+	kHash := n.GetSha(key)
 	node := n.FindSuccessor(kHash)
 	return node.RetrieveKey(key)
 }
@@ -425,12 +452,19 @@ func (n *ChordServer) handleConnection(conn net.Conn) {
 		key := message[1]
 		value := message[2]
 		factor, err := strconv.Atoi(message[3])
-		opcode, err := strconv.Atoi(message[4])
 
 		if err != nil {
 			log.Printf("handleConnection: STORE_KEY cannot parse replication factor from str %s\n", message[2])
 			return
 		}
+
+		opcode, err := strconv.Atoi(message[4])
+
+		if err != nil {
+			log.Printf("handleConnection: STORE_KEY cannot opcode from str %s\n", message[2])
+			return
+		}
+
 		n.StoreKey(key, value, factor, opcode)
 	case RETRIEVE_KEY:
 		key := message[1]

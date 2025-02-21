@@ -1,13 +1,10 @@
 package chord
 
 import (
-	"crypto/sha1"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
-	"math"
-	"math/big"
+
 	"net"
 	"strconv"
 	"strings"
@@ -27,28 +24,6 @@ const (
 	RETRIEVE_KEY
 	CHECK_PREDECESSOR
 )
-
-func getShaRepr(data string) uint64 {
-	hash := sha1.New()
-	_, err := hash.Write([]byte(data))
-	if err != nil {
-		log.Default().Println("getShaRepr: Failed to hash data")
-		return 0
-	}
-
-	hexNum := hex.EncodeToString(hash.Sum(nil))
-	intNum, ok := new(big.Int).SetString(hexNum, 16)
-
-	if !ok {
-		log.Default().Println("getShaRepr: Failed to convert hex hash to int")
-		return 0
-	}
-	return uint64(intNum.Uint64()) % uint64(math.Pow(2, float64(10)))
-}
-
-func GetSha(data string) uint64 {
-	return getShaRepr(data)
-}
 
 func checkValidIp(ip string) bool {
 	ipParts := strings.Split(ip, ".")

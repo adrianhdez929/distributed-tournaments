@@ -150,7 +150,7 @@ func (s *TournamentService) getTournamentKey(name string) string {
 }
 
 func (s *TournamentService) getTournamentOwner(name string) chord.ChordNodeReference {
-	tHash := chord.GetSha(s.getTournamentKey(name))
+	tHash := s.node.GetSha(s.getTournamentKey(name))
 	owner := s.node.FindSuccessor(tHash)
 	return owner
 }
