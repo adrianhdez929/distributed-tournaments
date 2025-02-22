@@ -18,7 +18,7 @@ func GetStatistics(tournament models.Tournament) map[string]interface{} {
 	}
 
 	for k := range tournament.Matches() {
-		stateKey := fmt.Sprintf("match_winner_%s", k)
+		stateKey := fmt.Sprintf("match_winner_%d", k)
 		player := tournament.State()[stateKey]
 		if player == nil {
 			continue
@@ -50,7 +50,7 @@ func DumpTournamentPlayers(players []interfaces.Player) []*pb.Player {
 	return dumpedPlayers
 }
 
-func DumpTournamentMatches(m map[string]models.Match) []*pb.Match {
+func DumpTournamentMatches(m []models.Match) []*pb.Match {
 	dumpedMatches := make([]*pb.Match, 0)
 
 	for _, match := range m {
@@ -62,14 +62,10 @@ func DumpTournamentMatches(m map[string]models.Match) []*pb.Match {
 		winner := match.Winner()
 		next := ""
 
-		if match.Next() != nil {
-			next = match.Next().Id()
-		}
-
 		dumpedMatches = append(
 			dumpedMatches,
 			&pb.Match{
-				Id:      match.Id(),
+				Id:      string(match.Id()),
 				Player1: players[0],
 				Player2: players[0],
 				Winner: &pb.Player{

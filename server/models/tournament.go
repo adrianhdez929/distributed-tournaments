@@ -1,28 +1,26 @@
 package models
 
 import (
-	"math"
 	"shared/interfaces"
-
+	"math"
 	pb "shared/grpc"
 )
 
 type Tournament interface {
 	Id() string
-	CurrentRound() int
 	TotalRounds() int
 	Players() []interfaces.Player
 	Winner() interfaces.Player
-	Matches() map[string]Match
-	SetMatch(matchId string, match Match)
-	InitialMatches() []Match
+	Matches() []Match
+	SetMatch(matchId int, match Match)
 	Game() string
-	// AddMatches(matches []Match)
 	SetWinner(winner interfaces.Player)
 	SetStatus(status pb.TournamentStatus)
 	Status() pb.TournamentStatus
 	State() map[string]interface{}
 	SetState(key string, value interface{})
+	LoadState()
+	PendingMatches() map[int]bool
 }
 
 var initialState = map[string]interface{}{
@@ -33,38 +31,56 @@ var initialState = map[string]interface{}{
 type TournamentData struct {
 	id             string
 	players        []interfaces.Player
-	matches        map[string]Match
-	initialMatches []Match
-	currentRound   int
+	matches        []Match
+	matchCount	   int
 	rounds         int
 	status         pb.TournamentStatus
-	winner         interfaces.Player
 	state          map[string]interface{}
+	winner         interfaces.Player
 	game           string
+	pendingMatches map[int]bool	
 }
 
+
 func NewTournamentData(id string, players []interfaces.Player, gameFactory func([]interfaces.Player) interfaces.Game) *TournamentData {
-	initialMatchCount := float64(len(players) / 2)
-
-	totalRounds := int(math.Log2(initialMatchCount)) + 1
-	matches := createTournament(totalRounds, gameFactory)
-
-	for _, v := range matches {
-		v.SetPlayer(players[0])
-		v.SetPlayer(players[1])
-		players = players[2:]
+	matchC := len(players)-1
+	totalRounds := 0
+	if len(players)-1 == 0 {
+		totalRounds = 0 
+	}else{
+		totalRounds = int(math.Log2(float64(len(players)-1)))+1
+	}
+	matches := make([]Match, matchC)
+	for i := 0; i < matchC; i++ {
+		matches[i] = NewMatchData(gameFactory, i, id)
+	}
+	cont:=0
+	pending := map[int]bool{}
+	for i:=0 ;i< matchC; i++{
+		if (i+1)*2>matchC{
+			matches[i].AddPlayer(players[cont])
+			cont++
+		}
+		if (i+1)*2+1>matchC{
+			matches[i].AddPlayer(players[cont])
+			cont++
+		}
+		if matches[i].SetGameIfReady(){
+			pending[i]=true
+		}		
 	}
 
 	return &TournamentData{
 		id:             id,
 		players:        players,
-		initialMatches: matches,
-		matches:        make(map[string]Match),
-		currentRound:   1,
+		matches:        matches,
+		matchCount:     matchC,
 		rounds:         totalRounds,
 		status:         pb.TournamentStatus_TOURNAMENT_STATUS_NOT_STARTED,
 		state:          initialState,
+		winner:         nil,
 		game:           gameFactory([]interfaces.Player{}).Name(),
+		pendingMatches: pending,
 	}
 }
 
@@ -88,33 +104,21 @@ func (t *TournamentData) Winner() interfaces.Player {
 	return t.winner
 }
 
-func (t *TournamentData) CurrentRound() int {
-	return t.currentRound
-}
-
 func (t *TournamentData) TotalRounds() int {
 	return t.rounds
 }
 
-func (t *TournamentData) Matches() map[string]Match {
-	return t.matches
+func (t *TournamentData) Matches() []Match {
+	return t.matches[:]
 }
 
-func (t *TournamentData) SetMatch(matchId string, match Match) {
+func (t *TournamentData) SetMatch(matchId int, match Match) {
 	t.matches[matchId] = match
-}
-
-func (t *TournamentData) InitialMatches() []Match {
-	return t.initialMatches
 }
 
 func (t *TournamentData) Game() string {
 	return t.game
 }
-
-// func (t *TournamentData) AddMatches(matches []Match) {
-// 	t.matches = append(t.matches, matches...)
-// }
 
 func (t *TournamentData) State() map[string]interface{} {
 	return t.state
@@ -129,27 +133,10 @@ func (t *TournamentData) SetWinner(winner interfaces.Player) {
 	t.state["winner"] = winner
 }
 
-func createTournament(rounds int, gameFactory func([]interfaces.Player) interfaces.Game) []Match {
-	finalMatch := NewMatchData(gameFactory, nil, nil)
-	currentRound := []Match{finalMatch}
-
-	for i := 0; i < rounds-1; i++ {
-		newRound := make([]Match, 0, 2*len(currentRound))
-
-		for _, v := range currentRound {
-			submatches := createSubMatches(v, gameFactory)
-			newRound = append(newRound, submatches[0], submatches[1])
-		}
-
-		currentRound = newRound
-	}
-
-	return currentRound
+//funcion para cargar el estado del torneo desde un .json		
+func (t *TournamentData) LoadState() {
 }
 
-func createSubMatches(match Match, gameFactory func([]interfaces.Player) interfaces.Game) [2]Match {
-	return [2]Match{
-		NewMatchData(gameFactory, nil, match),
-		NewMatchData(gameFactory, nil, match),
-	}
+func (t *TournamentData) PendingMatches() map[int]bool {
+	return t.pendingMatches
 }
