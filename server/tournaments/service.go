@@ -1,6 +1,7 @@
 package tournaments
 
 import (
+	"math/rand"
 	"context"
 	"fmt"
 	"log"
@@ -385,6 +386,10 @@ func createTournament(id string, playerFactory func(int) interfaces.Player, game
 		players[i] = playerFactory(i + 1)
 		// fmt.Printf("creating player %s\n", players[i].Id())
 	}
+	rand.Shuffle(len(players), func(i, j int) {
+		players[i], players[j] = players[j], players[i]
+	})
+	
 
 	tournament := models.NewTournamentData(id, players, gameFactory)
 	return tournament

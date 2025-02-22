@@ -10,7 +10,7 @@ import (
 )
 
 type MatchNotification struct {
-	MatchId string
+	MatchId int
 	Key     string
 	Value   interface{}
 }
@@ -46,10 +46,9 @@ func (r *TournamentRunner) Run() {
 	go r.Notify()
 
 	// Distribuir la ejecucion de las partidas tambien. habra que agregar un layer nuevo para esto? o sobre este mismo no se pierde flexibilidad?
-	currentMatches := r.tournament.InitialMatches()
-	for _, match := range currentMatches {
-		r.tournament.SetMatch(match.Id(), match)
-		r.runMatch(match)
+	currentMatches := r.tournament.PendingMatches()
+	for  match := range currentMatches {
+		r.runMatch( r.tournament.Matches()[match])
 	}
 
 	r.wg.Wait()
@@ -69,23 +68,28 @@ func (r *TournamentRunner) Notify() {
 		value := notification.Value
 
 		if key == "finished" {
+			if(r.tournament.Matches()[matchId].Status() == 2){
+				r.tournament.Matches()[matchId].SetStatus(3)
+				delete(r.tournament.PendingMatches(), matchId)
+			}else{
+				continue
+			}
 			winner := value.(interfaces.Player)
+			r.tournament.Matches()[matchId].SetWinner(winner)
+			match:= r.tournament.Matches()[matchId]
 			log.Default().Printf("tournamentRunner:Notify: winner is %s\n", winner.Id())
-			match := r.tournament.Matches()[matchId]
-			match.SetWinner(winner)
-			r.tournament.SetMatch(matchId, match)
 
-			if r.tournament.Matches()[matchId].Next() != nil {
-				r.tournament.Matches()[matchId].Next().SetPlayer(winner)
-				log.Default().Printf("tournamentRunner:Notify: setting winner %s for next match of %s\n", winner.Id(), matchId)
+			if matchId != 0 {
+				r.tournament.Matches()[(matchId+1)/2-1].AddPlayer(winner)
+				log.Default().Printf("tournamentRunner:Notify: setting winner %s for next match of %d\n", winner.Id(), matchId)
 
-				nextMatch := match.Next()
-				log.Default().Printf("tournamentRunner:Notify: next match of %s is %s with %d players\n", match.Id(), nextMatch.Id(), len(nextMatch.Players()))
-				if len(nextMatch.Players()) == 2 {
-					log.Default().Printf("tournamentRunner:Notify: next match %s of %s has 2 players\n", nextMatch.Id(), match.Id())
-					r.tournament.SetMatch(nextMatch.Id(), nextMatch)
-					r.runMatch(nextMatch)
-					log.Default().Printf("tournamentRunner:Notify: running next match %s\n", nextMatch.Id())
+				nextMatchId := (matchId+1)/2-1
+				log.Default().Printf("tournamentRunner:Notify: next match of %d is %d with %d players\n", match.Id(), nextMatchId, len(r.tournament.Matches()[(matchId+1)/2-1].Players()))
+				if r.tournament.Matches()[(matchId+1)/2-1].SetGameIfReady() {
+					log.Default().Printf("tournamentRunner:Notify: next match %d of %d has 2 players\n", nextMatchId, match.Id())
+					r.tournament.PendingMatches()[nextMatchId] = true
+					r.runMatch(r.tournament.Matches()[(matchId+1)/2-1])
+					log.Default().Printf("tournamentRunner:Notify: running next match %d\n", nextMatchId)
 				}
 			} else {
 				r.manager.Notify(r.tournament.Id(), "finished", winner)
@@ -114,9 +118,9 @@ func NewMatchRunner(
 }
 
 func (r *MatchRunner) Run(channel chan MatchNotification) {
-	log.Default().Printf("matchRunner:Run: running match %s\n", r.match.Id())
+	log.Default().Printf("matchRunner:Run: running match %d\n", r.match.Id())
 	winner := r.match.Start()
-	log.Default().Printf("matchRunner:Run: match %s finished\n", r.match.Id())
+	log.Default().Printf("matchRunner:Run: match %d finished\n", r.match.Id())
 
 	channel <- MatchNotification{r.match.Id(), "finished", winner}
 	log.Default().Printf("matchRunner:Run: winner is %s\n", winner.Id())
