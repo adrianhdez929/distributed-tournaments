@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"shared/interfaces"
 )
 
@@ -13,19 +14,19 @@ type Match interface {
 	SetWinner(interfaces.Player)
 	Players() []interfaces.Player
 	SetGameIfReady() bool
-	Status()	int
+	Status() int
 	SetStatus(int)
 	Start() interfaces.Player
 }
 
 type MatchData struct {
-	id          int
-	tournamentId string
-	gameFactory func([]interfaces.Player) interfaces.Game
-	game        interfaces.Game
-	players     []interfaces.Player
-	matchStatus int
-	winner      interfaces.Player
+	Id_           int    `json:"id"`
+	TournamentId_ string `json:"tournament_id"`
+	gameFactory   func([]interfaces.Player) interfaces.Game
+	Game_         interfaces.Game     `json:"game"`
+	Players_      []interfaces.Player `json:"players"`
+	MatchStatus_  int                 `json:"status"`
+	Winner_       interfaces.Player   `json:"winner"`
 }
 
 func NewMatchData(
@@ -34,67 +35,86 @@ func NewMatchData(
 	tournamentID string,
 ) *MatchData {
 	return &MatchData{
-		id:				matchId,
-		tournamentId: 	tournamentID,
-		gameFactory:  	gameFactory,
-		game:			nil,
-		players:		[]interfaces.Player{},
-		matchStatus: 	0,
-		winner: 		nil,
+		Id_:           matchId,
+		TournamentId_: tournamentID,
+		gameFactory:   gameFactory,
+		Game_:         nil,
+		Players_:      []interfaces.Player{},
+		MatchStatus_:  0,
+		Winner_:       nil,
 	}
 }
 
-func (m *MatchData) Id() int{
-	return m.id
+func (m MatchData) FromJson(jsonData string) *MatchData {
+	var match *MatchData
+
+	err := json.Unmarshal([]byte(jsonData), match)
+	if err != nil {
+		return nil
+	}
+	return match
+}
+
+func (m MatchData) ToJson() string {
+	data, err := json.Marshal(m)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func (m *MatchData) Id() int {
+	return m.Id_
 }
 
 func (m *MatchData) TournamentId() string {
-	return m.tournamentId
+	return m.TournamentId_
 }
 
 func (m *MatchData) Game() interfaces.Game {
-	return m.game
+	return m.Game_
 }
 
 func (m *MatchData) SetGameIfReady() bool {
-	if(len(m.players) < 2){
+	if len(m.Players_) < 2 {
 		return false
 	}
-	m.matchStatus=1
-	m.game=m.gameFactory(m.players)
+	m.MatchStatus_ = 1
+	m.Game_ = m.gameFactory(m.Players_)
 	return true
 }
 
 func (m *MatchData) Winner() interfaces.Player {
-	return m.winner
+	return m.Winner_
 }
 
 func (m *MatchData) Players() []interfaces.Player {
-	return m.players
+	return m.Players_
 }
 
 func (m *MatchData) AddPlayer(player interfaces.Player) {
-	m.players = append(m.players, player)
+	m.Players_ = append(m.Players_, player)
 }
 
 func (m *MatchData) SetWinner(player interfaces.Player) {
-	m.winner = player
+	m.Winner_ = player
 }
 
-//funcion para obtener el estado de la partida
+// funcion para obtener el estado de la partida
 func (m *MatchData) Status() int {
-	return m.matchStatus
-}
-//funcion para settear el estado de la partida
-func (m *MatchData) SetStatus(status int) {	
-	m.matchStatus = status	
+	return m.MatchStatus_
 }
 
-//funcion para cargar los datos de la partida desde un .json
+// funcion para settear el estado de la partida
+func (m *MatchData) SetStatus(status int) {
+	m.MatchStatus_ = status
+}
+
+// funcion para cargar los datos de la partida desde un .json
 func (m *MatchData) LoadState() {
 }
 
 func (m *MatchData) Start() interfaces.Player {
-	m.game.Play()
-	return m.game.Winner()
+	m.Game_.Play()
+	return m.Game_.Winner()
 }

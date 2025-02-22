@@ -65,7 +65,7 @@ func DumpTournamentMatches(m []models.Match) []*pb.Match {
 		dumpedMatches = append(
 			dumpedMatches,
 			&pb.Match{
-				Id:      string(match.Id()),
+				Id:      fmt.Sprintf("%d", match.Id()),
 				Player1: players[0],
 				Player2: players[0],
 				Winner: &pb.Player{

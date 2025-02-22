@@ -1,17 +1,38 @@
 package models
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 type PlayerData struct {
-	id int
+	Id_ int `json:"id"`
+}
+
+func (p *PlayerData) FromJson(jsonData string) *PlayerData {
+	var data *PlayerData
+
+	err := json.Unmarshal([]byte(jsonData), data)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func (p *PlayerData) ToJson() string {
+	data, err := json.Marshal(p)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func NewPlayerData(id int) *PlayerData {
-	return &PlayerData{id}
+	return &PlayerData{Id_: id}
 }
 
 func (p *PlayerData) Id() string {
-	return fmt.Sprintf("%d", p.id)
+	return fmt.Sprintf("%d", p.Id_)
 }
 
 func (p *PlayerData) Move() {}
