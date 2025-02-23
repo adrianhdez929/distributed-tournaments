@@ -17,6 +17,7 @@ type Match interface {
 	Status() int
 	SetStatus(int)
 	Start() interfaces.Player
+	ToJson() 	  string
 }
 
 type MatchData struct {
@@ -108,10 +109,6 @@ func (m *MatchData) Status() int {
 // funcion para settear el estado de la partida
 func (m *MatchData) SetStatus(status int) {
 	m.MatchStatus_ = status
-}
-
-// funcion para cargar los datos de la partida desde un .json
-func (m *MatchData) LoadState() {
 }
 
 func (m *MatchData) Start() interfaces.Player {
