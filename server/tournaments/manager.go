@@ -36,6 +36,17 @@ func (tm *TournamentManager) AddTournament(tournament models.Tournament) {
 	// Aqui hay que hacer la replicacion a los siguientes k - 1 nodos con k factor de replicacion
 }
 
+func (tm *TournamentManager) ResumeTournament(json string) {
+	tournament:= models.TournamentFromJson(json)
+	tm.Tournaments[tournament.Id()] = tournament
+
+	go NewTournamentRunner(tm, tournament).Resume()
+}
+
+func (tm *TournamentManager) SaveTournamentAsJson(id string, json string) {
+	
+}
+
 func (tm *TournamentManager) UpdateTournament(tournament models.Tournament) {
 	tm.Tournaments[tournament.Id()] = tournament
 }

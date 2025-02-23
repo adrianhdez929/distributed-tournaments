@@ -20,8 +20,8 @@ type Tournament interface {
 	Status() pb.TournamentStatus
 	State() map[string]interface{}
 	SetState(key string, value interface{})
-	LoadState()
 	PendingMatches() map[int]bool
+	ToJson() string
 }
 
 var initialState = map[string]interface{}{
@@ -84,7 +84,7 @@ func NewTournamentData(id string, players []interfaces.Player, gameFactory func(
 	}
 }
 
-func (t *TournamentData) FromJson(jsonData string) *TournamentData {
+func TournamentFromJson(jsonData string) *TournamentData {
 	var data *TournamentData
 
 	err := json.Unmarshal([]byte(jsonData), data)
@@ -151,9 +151,6 @@ func (t *TournamentData) SetWinner(winner interfaces.Player) {
 	t.State_["winner"] = winner
 }
 
-// funcion para cargar el estado del torneo desde un .json
-func (t *TournamentData) LoadState() {
-}
 
 func (t *TournamentData) PendingMatches() map[int]bool {
 	return t.PendingMatches_

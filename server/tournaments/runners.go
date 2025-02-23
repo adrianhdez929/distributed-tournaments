@@ -5,7 +5,7 @@ import (
 	"shared/interfaces"
 	"sync"
 	"tournament_server/models"
-
+	"time"
 	pb "shared/grpc"
 )
 
@@ -36,6 +36,7 @@ func NewTournamentRunner(manager *TournamentManager, tournament models.Tournamen
 func (r *TournamentRunner) runMatch(match models.Match) {
 	matchRunner := NewMatchRunner(r, match)
 	r.wg.Add(1)
+	time.Sleep(3 * time.Second)
 	go matchRunner.Run(r.notifyChannel)
 }
 
@@ -57,6 +58,23 @@ func (r *TournamentRunner) Run() {
 	log.Default().Printf("tournamentRunner:Run: tournament %s finished\n", r.tournament.Id())
 }
 
+func (r *TournamentRunner) Resume() {
+	log.Default().Printf("tournamentRunner:Run: tournament %s resumed\n", r.tournament.Id())
+	r.manager.Notify(r.tournament.Id(), "status", pb.TournamentStatus_TOURNAMENT_STATUS_IN_PROGRESS)
+	go r.Notify()
+
+	currentMatches := r.tournament.PendingMatches()
+	for  match := range currentMatches {
+		r.runMatch( r.tournament.Matches()[match])
+	}
+
+	r.wg.Wait()
+	r.manager.Notify(r.tournament.Id(), "status", pb.TournamentStatus_TOURNAMENT_STATUS_COMPLETED)
+
+	log.Default().Printf("tournamentRunner:Run: tournament %s finished\n", r.tournament.Id())
+}
+
+
 func (r *TournamentRunner) Notify() {
 	r.wg.Add(1)
 
@@ -68,7 +86,7 @@ func (r *TournamentRunner) Notify() {
 		value := notification.Value
 
 		if key == "finished" {
-			if(r.tournament.Matches()[matchId].Status() == 2){
+			if(r.tournament.Matches()[matchId].Status() == 1){
 				r.tournament.Matches()[matchId].SetStatus(3)
 				delete(r.tournament.PendingMatches(), matchId)
 			}else{
@@ -100,6 +118,11 @@ func (r *TournamentRunner) Notify() {
 	}
 
 	r.wg.Done()
+}
+
+func (r *TournamentRunner) Save() {
+	tournament_json:= r.tournament.ToJson()
+	r.manager.SaveTournamentAsJson(r.tournament.Id(), tournament_json)
 }
 
 type MatchRunner struct {
