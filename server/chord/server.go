@@ -1,9 +1,11 @@
 package chord
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"math/big"
@@ -12,7 +14,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"tournament_server/security"
 )
+
+const REPLICATION_FACTOR = 3
+
+const CREATE = 0
+const UPDATE = 1
 
 const MULTICAST_MASK = "224.0.0.1"
 const MULTICAST_PORT = 10000
@@ -132,8 +140,15 @@ func (n *ChordServer) FindPredecessor(id uint64) ChordNodeReference {
 	}
 
 	for !n.inBetween(id, node.Id, successor.Id) && node.Id != 0 {
+		var x ChordNodeReference
+		var err error
+
 		log.Default().Printf("FindPredecessor: calling ClosestPrecedingFinger from %s to %s\n", n.reference.String(), node.String())
-		x, err := node.ClosestPrecedingFinger(id)
+		if node.Id == n.Id() {
+			return n.ClosestPrecedingFinger(id)
+		} else {
+			x, err = node.ClosestPrecedingFinger(id)
+		}
 
 		if err != nil {
 			log.Printf("FindPredecessor: error while calling closingPrecedingFinger to node %s", node)
@@ -193,7 +208,7 @@ func (n *ChordServer) StoreKey(key string, value string, factor int, opcode int)
 		return err
 	}
 
-	n.channel <- fmt.Sprintf("%d,%s,%s", opcode, key, n.Successor().Ip)
+	n.channel <- fmt.Sprintf("%d;%s;%s", opcode, key, value)
 
 	return nil
 }
@@ -267,6 +282,13 @@ func (n *ChordServer) stabilize() {
 		if n.inBetween(x.Id, n.Id(), n.Successor().Id) && x.Id != 0 {
 			log.Printf("stabilize: updating successor from %s to %s\n", n.Successor().String(), x.String())
 			n.setSuccessor(x)
+
+			// replicate keys
+			go func() {
+				for k, v := range n.data {
+					n.StoreKey(k, v, REPLICATION_FACTOR, UPDATE)
+				}
+			}()
 		}
 
 		n.Successor().Notify(n.reference)
@@ -367,13 +389,7 @@ func (n *ChordServer) start() {
 }
 
 func (n *ChordServer) listen() {
-	addr, err := net.ResolveTCPAddr("tcp", fmt.Sprintf("%s:%d", n.reference.Ip, n.reference.Port))
-
-	if err != nil {
-		log.Default().Println(err)
-	}
-
-	socket, err := net.ListenTCP("tcp", addr)
+	socket, err := security.CreateSecureSocketListener(n.reference.Port)
 
 	if err != nil {
 		log.Default().Println(err)
@@ -395,10 +411,29 @@ func (n *ChordServer) listen() {
 func (n *ChordServer) handleConnection(conn net.Conn) {
 	defer conn.Close()
 
-	data := make([]byte, 1024)
-	conn.Read(data)
+	// Read response
+	var buffer bytes.Buffer
+	tempBuf := make([]byte, 4096)
 
-	message := strings.Split(decodeData(data), ",")
+	for {
+		n, err := conn.Read(tempBuf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Default().Printf("sendData: Failed to read response from %s", conn.RemoteAddr().String())
+			log.Default().Println(err)
+			return
+		}
+		buffer.Write(tempBuf[:n])
+
+		// Check if we've reached the end of the response
+		if bytes.Contains(tempBuf[:n], []byte{0}) {
+			break
+		}
+	}
+
+	message := strings.Split(decodeData(buffer.Bytes()), ";")
 	opcode, err := strconv.Atoi(message[0])
 
 	if err != nil {
@@ -416,7 +451,7 @@ func (n *ChordServer) handleConnection(conn net.Conn) {
 			log.Default().Println(err)
 		}
 		result := n.FindPredecessor(id)
-		responseData = fmt.Sprintf("%d,%s", result.Id, result.Ip)
+		responseData = fmt.Sprintf("%d;%s", result.Id, result.Ip)
 	case FIND_SUCCESSOR:
 		id, err := strconv.ParseUint(message[1], 10, 64)
 		if err != nil {
@@ -424,18 +459,18 @@ func (n *ChordServer) handleConnection(conn net.Conn) {
 			log.Default().Println(err)
 		}
 		result := n.FindSuccessor(id)
-		responseData = fmt.Sprintf("%d,%s", result.Id, result.Ip)
+		responseData = fmt.Sprintf("%d;%s", result.Id, result.Ip)
 	case GET_PREDECESSOR:
 		if n.predecessor.Id != 0 {
-			responseData = fmt.Sprintf("%d,%s", n.predecessor.Id, n.predecessor.Ip)
+			responseData = fmt.Sprintf("%d;%s", n.predecessor.Id, n.predecessor.Ip)
 		} else {
-			responseData = fmt.Sprintf("%d,%s", n.Id(), n.reference.Ip)
+			responseData = fmt.Sprintf("%d;%s", n.Id(), n.reference.Ip)
 		}
 	case GET_SUCCESSOR:
 		if n.Successor().Id != 0 {
-			responseData = fmt.Sprintf("%d,%s", n.Successor().Id, n.Successor().Ip)
+			responseData = fmt.Sprintf("%d;%s", n.Successor().Id, n.Successor().Ip)
 		} else {
-			responseData = fmt.Sprintf("%d,%s", n.Id(), n.reference.Ip)
+			responseData = fmt.Sprintf("%d;%s", n.Id(), n.reference.Ip)
 		}
 	case NOTIFY:
 		ip := message[2]
@@ -447,25 +482,25 @@ func (n *ChordServer) handleConnection(conn net.Conn) {
 			log.Default().Println(err)
 		}
 		closestFinger := n.ClosestPrecedingFinger(id)
-		responseData = fmt.Sprintf("%d,%s", closestFinger.Id, closestFinger.Ip)
+		responseData = fmt.Sprintf("%d;%s", closestFinger.Id, closestFinger.Ip)
 	case STORE_KEY:
 		key := message[1]
 		value := message[2]
 		factor, err := strconv.Atoi(message[3])
 
 		if err != nil {
-			log.Printf("handleConnection: STORE_KEY cannot parse replication factor from str %s\n", message[2])
+			log.Printf("handleConnection: STORE_KEY cannot parse replication factor from str %s\n", message[3])
 			return
 		}
 
 		opcode, err := strconv.Atoi(message[4])
 
 		if err != nil {
-			log.Printf("handleConnection: STORE_KEY cannot opcode from str %s\n", message[2])
+			log.Printf("handleConnection: STORE_KEY cannot parse opcode from str %s\n", message[4])
 			return
 		}
 
-		n.StoreKey(key, value, factor, opcode)
+		go n.StoreKey(key, value, factor, opcode)
 	case RETRIEVE_KEY:
 		key := message[1]
 		value := n.data[key]

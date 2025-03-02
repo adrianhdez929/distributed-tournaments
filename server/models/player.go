@@ -10,7 +10,7 @@ type PlayerData struct {
 }
 
 func (p *PlayerData) FromJson(jsonData string) *PlayerData {
-	var data *PlayerData
+	data := &PlayerData{}
 
 	err := json.Unmarshal([]byte(jsonData), data)
 	if err != nil {

@@ -3,7 +3,9 @@ package tournaments
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
+	"sync"
 	"tournament_server/chord"
 	"tournament_server/models"
 
@@ -15,6 +17,7 @@ type TournamentManager struct {
 	Tournaments map[string]models.Tournament
 	repo        TournamentRepository
 	node        *chord.ChordServer
+	lock        *sync.Mutex
 }
 
 func NewTournamentManager(repo TournamentRepository, server *chord.ChordServer) *TournamentManager {
@@ -22,6 +25,7 @@ func NewTournamentManager(repo TournamentRepository, server *chord.ChordServer) 
 		Tournaments: make(map[string]models.Tournament),
 		repo:        repo,
 		node:        server,
+		lock:        &sync.Mutex{},
 	}
 }
 
@@ -29,26 +33,74 @@ func NewTournamentManager(repo TournamentRepository, server *chord.ChordServer) 
 // 	return tm.repo.(tournament)
 // }
 
-func (tm *TournamentManager) AddTournament(tournament models.Tournament) {
+func (tm *TournamentManager) StartTournament(tournament models.Tournament) {
+	tm.lock.Lock()
 	tm.Tournaments[tournament.Id()] = tournament
+	tm.lock.Unlock()
 
+	tm.repo.Create(context.Background(), DumpTournament(tournament))
+
+	json, err := TournamentToJson(DumpTournament(tournament))
+	if err != nil {
+		log.Printf("manager:StartTournament: error while serializing tournament data: %s", err)
+		return
+	}
+
+	tm.node.StoreKey(GetTournamentKey(tournament.Id()), json, chord.REPLICATION_FACTOR, chord.UPDATE)
 	go NewTournamentRunner(tm, tournament).Run()
 	// Aqui hay que hacer la replicacion a los siguientes k - 1 nodos con k factor de replicacion
 }
 
 func (tm *TournamentManager) ResumeTournament(json string) {
-	tournament:= models.TournamentFromJson(json)
-	tm.Tournaments[tournament.Id()] = tournament
+	tournament := (&models.TournamentData{}).FromJson(json)
+	if tournament == nil {
+		log.Printf("manager:ResumeTournament: cannot load tournament from json")
+	}
 
+	tm.lock.Lock()
+	tm.Tournaments[tournament.Id()] = tournament
+	tm.lock.Unlock()
+
+	tournamentPb := DumpTournament(tournament)
+	tm.repo.Create(context.Background(), tournamentPb)
+
+	data, err := TournamentToJson(tournamentPb)
+	if err != nil {
+		log.Printf("manager:StartTournament: error while serializing tournament data: %s", err)
+		return
+	}
+
+	tm.node.StoreKey(GetTournamentKey(tournament.Id()), data, chord.REPLICATION_FACTOR, chord.UPDATE)
 	go NewTournamentRunner(tm, tournament).Resume()
 }
 
 func (tm *TournamentManager) SaveTournamentAsJson(id string, json string) {
-	
+
 }
 
 func (tm *TournamentManager) UpdateTournament(tournament models.Tournament) {
+	tm.lock.Lock()
 	tm.Tournaments[tournament.Id()] = tournament
+	tm.lock.Unlock()
+	tm.repo.Update(context.Background(), DumpTournament(tournament))
+
+	json, err := TournamentToJson(DumpTournament(tournament))
+	if err != nil {
+		log.Printf("manager:StartTournament: error while serializing tournament data: %s", err)
+		return
+	}
+
+	tm.node.StoreKey(GetTournamentKey(tournament.Id()), json, chord.REPLICATION_FACTOR, chord.UPDATE)
+}
+
+func (tm *TournamentManager) GetStatus(id string) (int, error) {
+	tournament, ok := tm.Tournaments[id]
+
+	if !ok {
+		return -1, fmt.Errorf("tournament not found")
+	}
+
+	return int(tournament.Status()), nil
 }
 
 func (tm *TournamentManager) GetTournament(id string) (models.Tournament, error) {
@@ -72,24 +124,20 @@ func (tm *TournamentManager) Notify(tournamentId string, key string, value inter
 	if key == "finished" {
 		winner := value.(interfaces.Player)
 		tournament.SetWinner(winner)
-
+		tm.lock.Lock()
 		tm.Tournaments[tournamentId] = tournament
+		tm.lock.Unlock()
 
-		statistics := GetStatistics(tournament)
-
-		pbTournament := &pb.Tournament{
-			Id:              tournament.Id(),
-			Name:            tournament.Id(),
-			Status:          tournament.Status(),
-			MaxParticipants: int32(len(tournament.Players())),
-			Game:            tournament.Game(),
-			Players:         DumpTournamentPlayers(tournament.Players()),
-			Matches:         DumpTournamentMatches(tournament.Matches()),
-			PlayerWins:      statistics["player_wins"].(map[string]int32),
-			FinalWinner:     statistics["winner"].(interfaces.Player).Id(),
-		}
+		pbTournament := DumpTournament(tournament)
 
 		tm.repo.Update(context.Background(), pbTournament)
+		json, err := TournamentToJson(pbTournament)
+
+		if err != nil {
+			log.Printf("error serializing tournament")
+		}
+
+		tm.node.StoreKey(GetTournamentKey(tournamentId), json, chord.REPLICATION_FACTOR, chord.UPDATE)
 
 		log.Default().Printf("tournamentManager:Notify: tournament %s winner is %s\n", tournament.Id(), tournament.Winner().Id())
 		return nil
@@ -97,29 +145,23 @@ func (tm *TournamentManager) Notify(tournamentId string, key string, value inter
 
 	if key == "status" {
 		tournament.SetStatus(value.(pb.TournamentStatus))
+		tm.lock.Lock()
 		tm.Tournaments[tournamentId] = tournament
+		tm.lock.Unlock()
 
-		statistics := GetStatistics(tournament)
-
-		pbTournament := &pb.Tournament{
-			Id:              tournament.Id(),
-			Name:            tournament.Id(),
-			Status:          tournament.Status(),
-			MaxParticipants: int32(len(tournament.Players())),
-			Game:            tournament.Game(),
-			Players:         DumpTournamentPlayers(tournament.Players()),
-			Matches:         DumpTournamentMatches(tournament.Matches()),
-			PlayerWins:      statistics["player_wins"].(map[string]int32),
-			FinalWinner:     "",
-		}
+		pbTournament := DumpTournament(tournament)
 
 		tm.repo.Update(context.Background(), pbTournament)
+		json, err := TournamentToJson(pbTournament)
+
+		if err != nil {
+			log.Printf("error serializing tournament")
+		}
+
+		tm.node.StoreKey(GetTournamentKey(tournamentId), json, chord.REPLICATION_FACTOR, chord.UPDATE)
 
 		log.Default().Printf("tournamentManager:Notify: tournament %s status is %s\n", tournament.Id(), tournament.Status())
 	}
 
 	return nil
 }
-
-// Hay que crear un worker que cuando finalice una partida/torneo, notifique a los nodos que puedan tener la partida
-// para que actualicen/detengan la ejecucion

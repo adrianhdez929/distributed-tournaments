@@ -1,11 +1,12 @@
 package chord
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
+	"tournament_server/security"
 
-	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -68,48 +69,58 @@ func NewChordNodeReference(ip string, port int) ChordNodeReference {
 	return ChordNodeReference{Id: getShaRepr(ip), Ip: ip, Port: port}
 }
 
-func (n ChordNodeReference) sendData(opcode ChordOpcode, data string) ([]byte, error) {
-	socket, err := net.Dial("tcp", fmt.Sprintf("%s:%d", n.Ip, n.Port))
+func (node ChordNodeReference) sendData(opcode ChordOpcode, data string) ([]byte, error) {
+	socket, err := security.CreateSecureSocket(node.Ip, node.Port)
 	if err != nil {
-		log.Default().Printf("sendData: Failed to connect to node %s:%d", n.Ip, n.Port)
+		log.Default().Printf("sendData: Failed to connect to node %s:%d", node.Ip, node.Port)
 		log.Default().Println(err)
 		return nil, err
 	}
 
 	defer socket.Close()
 
-	err = socket.SetDeadline(time.Now().Add(5 * time.Second))
+	err = socket.SetDeadline(time.Now().Add(3 * time.Second))
 
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = socket.Write([]byte(fmt.Sprintf("%d,%s", opcode, data)))
-	if err != nil {
-		log.Default().Printf("sendData: Failed to send data to node %s:%d", n.Ip, n.Port)
-		log.Default().Println(err)
-		return nil, err
+	message := fmt.Sprintf("%d;%s\x00", opcode, data)
+
+	// Send message in chunks
+	remaining := []byte(message)
+	for len(remaining) > 0 {
+		n, err := socket.Write(remaining)
+		if err != nil {
+			log.Default().Printf("sendData: Failed to send data to node %s:%d", node.Ip, node.Port)
+			log.Default().Println(err)
+			return nil, err
+		}
+		remaining = remaining[n:]
 	}
 
 	if opcode == NOTIFY || opcode == STORE_KEY {
 		return make([]byte, 0), nil
 	}
 
-	response := make([]byte, 1024)
-	nBytes, err := socket.Read(response)
+	// Read response
+	var buffer bytes.Buffer
+	tempBuf := make([]byte, 4096)
 
-	if err == io.EOF {
-		return make([]byte, 0), nil
+	for {
+		n, err := socket.Read(tempBuf)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Default().Printf("sendData: Failed to read response from node %s:%d", node.Ip, node.Port)
+			log.Default().Println(err)
+			return nil, err
+		}
+		buffer.Write(tempBuf[:n])
 	}
 
-	if err != nil {
-		log.Default().Printf("sendData: opcode %d\n", opcode)
-		log.Default().Printf("sendData: Failed to read response from node %s:%d", n.Ip, n.Port)
-		log.Default().Println(err)
-		return nil, err
-	}
-
-	return response[:nBytes], nil
+	return buffer.Bytes(), nil
 }
 
 func (n ChordNodeReference) CheckPredecessor() error {
@@ -123,7 +134,7 @@ func (n ChordNodeReference) FindSuccessor(id uint64) (ChordNodeReference, error)
 		return ChordNodeReference{Id: 0, Ip: "", Port: 0}, err
 	}
 
-	decoded := strings.Split(string(response), ",")
+	decoded := strings.Split(string(response), ";")
 	log.Default().Printf("FindSuccessor: decoded %s\n", decoded[1])
 	return NewChordNodeReference(decoded[1], n.Port), nil
 }
@@ -134,7 +145,7 @@ func (n ChordNodeReference) FindPredecessor(id int) (ChordNodeReference, error) 
 		return ChordNodeReference{Id: 0, Ip: "", Port: 0}, err
 	}
 
-	decoded := strings.Split(string(response), ",")
+	decoded := strings.Split(string(response), ";")
 	return NewChordNodeReference(decoded[1], n.Port), nil
 }
 
@@ -144,7 +155,7 @@ func (n ChordNodeReference) Successor() (ChordNodeReference, error) {
 		return ChordNodeReference{Id: 0, Ip: "", Port: 0}, err
 	}
 
-	parts := strings.Split(string(response), ",")
+	parts := strings.Split(string(response), ";")
 	if len(parts) != 2 {
 		return ChordNodeReference{Id: 0, Ip: "", Port: 0}, fmt.Errorf("failed to decode message")
 	}
@@ -163,12 +174,12 @@ func (n ChordNodeReference) Predecessor() (ChordNodeReference, error) {
 		return ChordNodeReference{Id: 0, Ip: "", Port: 0}, err
 	}
 
-	decoded := strings.Split(string(response), ",")
+	decoded := strings.Split(string(response), ";")
 	return NewChordNodeReference(decoded[1], n.Port), nil
 }
 
 func (n ChordNodeReference) Notify(node ChordNodeReference) error {
-	_, err := n.sendData(NOTIFY, fmt.Sprintf("%d,%s", node.Id, node.Ip))
+	_, err := n.sendData(NOTIFY, fmt.Sprintf("%d;%s", node.Id, node.Ip))
 	return err
 }
 
@@ -178,7 +189,7 @@ func (n ChordNodeReference) ClosestPrecedingFinger(id uint64) (ChordNodeReferenc
 		return ChordNodeReference{Id: 0, Ip: "", Port: 0}, err
 	}
 
-	decoded := strings.Split(string(response), ",")
+	decoded := strings.Split(string(response), ";")
 	return NewChordNodeReference(decoded[1], n.Port), nil
 }
 
@@ -187,7 +198,7 @@ func (n ChordNodeReference) String() string {
 }
 
 func (n ChordNodeReference) StoreKey(key string, value string, factor int, opcode int) error {
-	_, err := n.sendData(STORE_KEY, fmt.Sprintf("%s,%s,%d,%d", key, value, factor, opcode))
+	_, err := n.sendData(STORE_KEY, fmt.Sprintf("%s;%s;%d;%d", key, value, factor, opcode))
 	return err
 }
 

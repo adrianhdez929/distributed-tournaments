@@ -17,7 +17,7 @@ type Match interface {
 	Status() int
 	SetStatus(int)
 	Start() interfaces.Player
-	ToJson() 	  string
+	ToJson() string
 }
 
 type MatchData struct {
@@ -47,7 +47,7 @@ func NewMatchData(
 }
 
 func (m MatchData) FromJson(jsonData string) *MatchData {
-	var match *MatchData
+	match := &MatchData{}
 
 	err := json.Unmarshal([]byte(jsonData), match)
 	if err != nil {

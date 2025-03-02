@@ -1,24 +1,25 @@
 package players
 
 import (
-	"fmt"
 	"math/rand"
 	"shared/interfaces"
+	"time"
 )
 
-func NewRandomPlayer(id int) interfaces.Player {
+func NewRandomPlayer(id string) interfaces.Player {
 	return &TicTacToeRandomPlayer{id}
 }
 
 type TicTacToeRandomPlayer struct {
-	id int
+	id string
 }
 
 func (p *TicTacToeRandomPlayer) Id() string {
-	return fmt.Sprintf("%d", p.id)
+	return p.id
 }
 
 func (p *TicTacToeRandomPlayer) Move(state interfaces.GameState) interfaces.Move {
+	time.Sleep(1 * time.Second)
 	board := state["board"].([3][3]int)
 
 	freeCells := getFreeCells(board)

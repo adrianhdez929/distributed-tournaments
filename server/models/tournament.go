@@ -2,9 +2,13 @@ package models
 
 import (
 	"encoding/json"
+	"log"
 	"math"
 	pb "shared/grpc"
 	"shared/interfaces"
+	"strconv"
+	"tournament_server/games"
+	"tournament_server/players"
 )
 
 type Tournament interface {
@@ -84,13 +88,75 @@ func NewTournamentData(id string, players []interfaces.Player, gameFactory func(
 	}
 }
 
-func TournamentFromJson(jsonData string) *TournamentData {
-	var data *TournamentData
-
-	err := json.Unmarshal([]byte(jsonData), data)
+func (t TournamentData) FromJson(jsonData string) *TournamentData {
+	// First unmarshal into a map to handle interface conversion
+	var jsonMap map[string]interface{}
+	err := json.Unmarshal([]byte(jsonData), &jsonMap)
 	if err != nil {
+		log.Printf("Error unmarshaling tournament: %s", err)
 		return nil
 	}
+
+	// Create tournament data
+	data := &TournamentData{}
+
+	// Convert basic fields
+	data.Id_ = jsonMap["id"].(string)
+	data.Game_ = jsonMap["game"].(string)
+
+	if jsonMap["status"] != nil {
+		data.Status_ = pb.TournamentStatus(pb.TournamentStatus_value[jsonMap["status"].(string)])
+	} else {
+		data.Status_ = pb.TournamentStatus_TOURNAMENT_STATUS_NOT_STARTED
+	}
+	if jsonMap["state"] != nil {
+		data.State_ = jsonMap["state"].(map[string]interface{})
+	} else {
+		data.State_ = make(map[string]interface{})
+	}
+	data.PendingMatches_ = make(map[int]bool)
+
+	// Convert players
+	playersJson := jsonMap["players"].([]interface{})
+	data.Players_ = make([]interfaces.Player, len(playersJson))
+	for i, p := range playersJson {
+		playerMap := p.(map[string]interface{})
+		player := players.NewPlayerFactory(playerMap["agentName"].(string), playerMap["name"].(string))
+		data.Players_[i] = player
+	}
+
+	// Convert matches if they exist
+	if matchesJson, ok := jsonMap["matches"].([]interface{}); ok {
+		data.Matches_ = make([]Match, len(matchesJson))
+		data.PendingMatches_ = make(map[int]bool, len(matchesJson))
+
+		for i, m := range matchesJson {
+			matchMap := m.(map[string]interface{})
+			mId, _ := matchMap["id"].(string)
+			id, _ := strconv.Atoi(mId)
+			match := NewMatchData(
+				games.NewGameFactory(jsonMap["game"].(string), []interfaces.Player{}),
+				id,
+				data.Id_,
+			)
+
+			// Add players to match if they exist
+			if p1, ok := matchMap["player1"].(map[string]interface{}); ok {
+				player1 := players.NewPlayerFactory(p1["agentName"].(string), p1["name"].(string))
+				match.AddPlayer(player1)
+			}
+			if p2, ok := matchMap["player2"].(map[string]interface{}); ok {
+				player2 := players.NewPlayerFactory(p2["agentName"].(string), p2["name"].(string))
+				match.AddPlayer(player2)
+			}
+
+			data.Matches_[i] = match
+			if match.SetGameIfReady() {
+				data.PendingMatches_[i] = true
+			}
+		}
+	}
+
 	return data
 }
 
@@ -150,7 +216,6 @@ func (t *TournamentData) SetWinner(winner interfaces.Player) {
 	t.Winner_ = winner
 	t.State_["winner"] = winner
 }
-
 
 func (t *TournamentData) PendingMatches() map[int]bool {
 	return t.PendingMatches_

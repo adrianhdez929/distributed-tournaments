@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	pb "shared/grpc"
@@ -157,16 +158,20 @@ func (r *RedisRepository) getTournamentKey(id string) string {
 
 type MemoryRepository struct {
 	tournaments map[string]*pb.Tournament
+	lock        *sync.Mutex
 }
 
 func NewMemoryRepository() *MemoryRepository {
 	return &MemoryRepository{
 		tournaments: make(map[string]*pb.Tournament),
+		lock:        &sync.Mutex{},
 	}
 }
 
 func (r *MemoryRepository) Create(ctx context.Context, tournament *pb.Tournament) error {
+	r.lock.Lock()
 	r.tournaments[tournament.Id] = tournament
+	r.lock.Unlock()
 	return nil
 }
 
@@ -182,7 +187,9 @@ func (r *MemoryRepository) Update(ctx context.Context, tournament *pb.Tournament
 	if tournament == nil {
 		return fmt.Errorf("tournament is nil")
 	}
+	r.lock.Lock()
 	r.tournaments[tournament.Id] = tournament
+	r.lock.Unlock()
 	return nil
 }
 
